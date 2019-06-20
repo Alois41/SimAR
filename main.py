@@ -3,6 +3,8 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from Frame import Frame
 from OpenGL.GLU import *
+from OpenGL.GLUT.fonts import *
+import freetype
 import numpy as np
 
 # window dimensions
@@ -13,7 +15,7 @@ nRange = 1.0
 
 dim_grille = (7, 4)
 
-f, boxArray = None, []
+f, brick_array = None, []
 frame, frame_hand = None, None
 t_ref = clock()
 
@@ -28,7 +30,7 @@ def init():
 
 def idle():
     # capture next frame
-    global f, boxArray, t_ref, frame
+    global f, brick_array, t_ref, frame
     delta_t = clock() - t_ref
 
     # update contours
@@ -42,7 +44,7 @@ def idle():
     temp_b = []
     for nb in new_bricks:
         temp = False
-        for b in boxArray:
+        for b in brick_array:
             if nb.is_almost(b):
                 temp = True
                 b.replace(nb)
@@ -51,13 +53,12 @@ def idle():
 
         if not temp:
             temp_b.append(nb)
-    boxArray = temp_b
-
-    # [print(int(5*brick.xStart / 768)) for brick in boxArray]
+    brick_array = temp_b
+    glutPostRedisplay()
 
 
 def display():
-    global boxArray, frame
+    global brick_array, frame
 
     # Set Projection Matrix
     glMatrixMode(GL_PROJECTION)
@@ -74,8 +75,23 @@ def display():
         f.draw_frame(frame)
         f.draw_ui()
 
-    [box.draw() for box in boxArray]
-    # print("Brick number : %i " % len(boxArray))
+        x_start = 2.5 * width / 10
+        swap_time = 3
+        if 0 <= clock() % (3 * swap_time) <= swap_time:
+            f.draw_temperatures(x_start, 0, brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Temperatures", 0.0, 0.0, 0.0, 1.0)
+
+        elif swap_time <= clock() % (3 * swap_time) <= 2 * swap_time:
+            f.draw_resistance_th(x_start, 0, brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances thermiques", 0.0, 0.0, 0.0, 1.0)
+
+        else:
+            f.draw_resistance_corr(x_start, 0, brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances à la corrosion", 0.0, 0.0, 0.0, 1.0)
+            pass
+
+    # [box.draw() for box in brick_array]
+
     glutSwapBuffers()
 
 
@@ -101,6 +117,21 @@ def reshape(w, h):
 def keyboard(key, x, y):
     if key == b'\x1b':
         sys.exit()
+
+
+def glut_print(x, y, font, text, r, g, b, a):
+    blending = False
+    if glIsEnabled(GL_BLEND):
+        blending = True
+
+    # glEnable(GL_BLEND)
+    glColor3f(r, g, b)
+    glRasterPos2f(x, y)
+    for ch in text:
+        glutBitmapCharacter(font, ctypes.c_int(ord(ch)))
+
+    if not blending:
+        glDisable(GL_BLEND)
 
 
 def main():

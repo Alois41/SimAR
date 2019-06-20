@@ -10,15 +10,15 @@ height = 768
 dim_grille = (7, 4)
 
 color_to_mat = \
-    {  # Resistance thermique /corrosion
+    {  # color     r_th, r_corr
         "Black": (0, 0),
-        "Blue": (0., 0.6),
-        "Yellow": (0.5, 1),
-        "Magenta": (1, 0.7),
-        "Cyan": (0, 1),
-        "Orange": (1, 0.2),
-        "Red": (1, 0),
-        "Green": (0.2, 1)
+        "Blue": (0.2, 0),
+        "Yellow": (1, 1),
+        "Magenta": (0.8, 0.078),
+        "Cyan": (0.2, 1),
+        "Orange": (0.4, 0.2),
+        "Red": (0.6, 0),
+        "Green": (0, 1),
     }
 
 
@@ -43,16 +43,23 @@ class Brick:
         self.lenght_location = glGetUniformLocation(self.shaderProgram, "lenght")
 
         self.color = color
-        self.xIndex = min(dim_grille[0] - 1, np.rint(dim_grille[0] * (self.xStart - .5 * self.length) / width))
-        self.yIndex = min(dim_grille[1] - 1, np.rint(dim_grille[1] * (self.yStart - .5 * self.width) / height))
-        grid[int(self.xIndex), int(self.yIndex)] = (self.r_th, self.r_cor)
-        if self.length > 1.2 * (width / dim_grille[0]) and self.xIndex < len(grid) - 1:
-            grid[int(self.xIndex + 1), int(self.yIndex)] = (self.r_th, self.r_cor)
-            print("%i%i grande longueur" % (self.xIndex, self.yIndex))
+        self.xIndexes, self.yIndexes = [], []
+        xIndex = (min(dim_grille[0] - 1, np.rint(dim_grille[0] * (self.xStart - .5 * self.length) / width)))
+        yIndex = (min(dim_grille[1] - 1, np.rint(dim_grille[1] * (self.yStart - .5 * self.width) / height)))
 
-        if self.width > 1.2 * (height / dim_grille[1]) and self.yIndex < len(grid[0]) - 1:
-            grid[int(self.xIndex), int(self.yIndex + 1)] = (self.r_th, self.r_cor)
-            print("%i%i grande largeur" % (self.xIndex, self.yIndex))
+        self.xIndexes.append(xIndex)
+        self.yIndexes.append(yIndex)
+
+        grid[int(xIndex), int(yIndex)] = (self.r_th, self.r_cor)
+        if self.length > 1.2 * (width / dim_grille[0]) and xIndex < len(grid) - 1:
+            grid[int(xIndex + 1), int(yIndex)] = (self.r_th, self.r_cor)
+            self.xIndexes.append(xIndex + 1)
+            # print("%i%i grande longueur" % (xIndex, yIndex))
+
+        if self.width > 1.2 * (height / dim_grille[1]) and yIndex < len(grid[0]) - 1:
+            grid[int(xIndex), int(yIndex + 1)] = (self.r_th, self.r_cor)
+            self.yIndexes.append(yIndex + 1)
+            # print("%i%i grande largeur" % (xIndex, yIndex))
 
     def is_almost(self, b):
         ecart = np.sqrt(np.square(self.xStart - b.xStart) + np.square(self.yStart - b.yStart)
