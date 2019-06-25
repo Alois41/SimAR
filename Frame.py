@@ -13,14 +13,14 @@ from drawing import *
 
 class Camera:
 
-    def __init__(self, width, height):
+    def __init__(self, width: int, height: int) -> void:
         # TODO detect the good camera instead of changing the number
-        self.capture = cv2.VideoCapture(1)
+        self.capture = cv2.VideoCapture(p.cam_number)
         self.capture.set(3, width)
         self.capture.set(4, height)
         _, self.image_raw = self.capture.read()
 
-    def take_frame(self):
+    def take_frame(self) -> void:
         """ Update current raw frame in BGR format"""
         _, self.image_raw = self.capture.read()
 
@@ -28,7 +28,7 @@ class Camera:
 class Frame:
     """ Take and process webcam frames"""
 
-    def __init__(self, width, height):
+    def __init__(self, width: int, height: int) -> void:
         self.grid = np.empty(p.dim_grille)
         self.grid[:] = np.nan
         self.width = width
@@ -55,7 +55,7 @@ class Frame:
 
         self.tex_handler = TextureHandler()
 
-    def update_bricks(self, calibration=False):
+    def update_bricks(self, calibration: bool = False) -> (np.ndarray, list):
         """ Process the current raw frame and return a texture to draw and the  detected bricks"""
 
         image_raw = cv2.cvtColor(self.cam.image_raw, cv2.COLOR_BGR2RGBA)  # convert to RGBA
@@ -72,16 +72,15 @@ class Frame:
 
         return image, bricks
 
-    def render(self):
+    def render(self) -> void:
         if p.frame is not None:
             self.draw_frame(p.frame)
             self.draw_ui()
 
             self.draw_lava(p.width / 10, 0, 1.4 * p.width / 10, 2.2 * p.height / 3, 1, 0.250, 0.058)
 
-    def draw_frame(self, image, calibrate=False):
+    def draw_frame(self, image: np.ndarray, calibrate: bool = False) -> void:
         """ Draw the frame with OpenGL as a texture in the entire screen"""
-
         glClearColor(1, 1, 1, 1)
         if type(image) != int:
 
@@ -106,7 +105,7 @@ class Frame:
                     draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j,
                                          0, 0, 0, 5 if calibrate else 0.2)
 
-    def draw_ui(self):
+    def draw_ui(self) -> void:
         """ Draw user interface and decoration"""
         y0, x0 = p.hand_area_1[0]
         yf, xf = p.hand_area_1[1]
@@ -137,9 +136,8 @@ class Frame:
         glut_print(x_start, p.height - 30, GLUT_BITMAP_HELVETICA_18,
                    "Nombre de coulées : %i" % p.f.triggered_number, 0.0, 0.0, 0.0, 1.0, 20)
 
-    def isolate_bricks(self, contours, image):
+    def isolate_bricks(self, contours: list, image: np.ndarray) -> list:
         """ create bricks from contours"""
-
         self.grid = np.empty(p.dim_grille)
         self.grid[:] = np.nan
         bricks = []
@@ -198,7 +196,7 @@ class Frame:
 
         return bricks
 
-    def detect_hand(self):
+    def detect_hand(self) -> void:
         """ Detect hand in the button area """
         # hand detector cooldown
         if self.stay_triggered:
@@ -206,7 +204,7 @@ class Frame:
                 self.stay_triggered = False
                 self.trigger_cooldown = True
                 self.wait_time = clock()
-            return False
+            return
 
         elif self.trigger_cooldown:
             if clock() - self.wait_time >= 2.0:
@@ -215,7 +213,7 @@ class Frame:
                 yf, xf = p.hand_area_1[1]
                 crop = cv2.cvtColor(crop_zone(self.cam.image_raw, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
                 self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
-            return False
+            return
 
         # crop to the button zone
         y0, x0 = p.hand_area_1[0]
@@ -250,7 +248,7 @@ class Frame:
 
         self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
 
-    def draw_lava(self, x_s, y_s, w, h, r, g, b):
+    def draw_lava(self, x_s: int, y_s: int, w: int, h: int, r: float, g: float, b: float) -> void:
         """ draw "lava" from a texture"""
 
         draw_rectangle(x_s, y_s - 20, w, h, 0.3, 0.3, 0.3)
@@ -282,7 +280,7 @@ class Frame:
         draw_rectangle(x_s, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
         draw_rectangle(x_s + .5 * w + 20, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
 
-    def draw_resistance_th(self, x_s, y_s, bricks):
+    def draw_resistance_th(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
         r_th = 255 * self.grid[:, :, 0]
         y0, x0 = p.cam_area[0]
         yf, xf = p.cam_area[1]
@@ -300,7 +298,7 @@ class Frame:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_th), 1, 1, 1, 1.0, 1)
 
-    def draw_resistance_corr(self, x_s, y_s, bricks):
+    def draw_resistance_corr(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
         r_corr = 255 * self.grid[:, :, 1]
         y0, x0 = p.cam_area[0]
         yf, xf = p.cam_area[1]
@@ -318,7 +316,7 @@ class Frame:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_cor), 1, 1, 1, 1.0, 1)
 
-    def draw_temperatures(self, x_s, y_s, bricks):
+    def draw_temperatures(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
         r_th = 255 * self.grid[:, :, 0]
         y0, x0 = p.cam_area[0]
         yf, xf = p.cam_area[1]
@@ -336,7 +334,7 @@ class Frame:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.0f" % (b_xy.material.T_in - 273), 1, 1, 1, 1.0, 1)
 
-    def draw_texture(self, tex_loc, x, y, l, h):
+    def draw_texture(self, tex_loc: int, x: int, y: int, l: int, h: int) -> void:
         glEnable(GL_TEXTURE_2D)
         self.tex_handler.use_texture(tex_loc)
         draw_textured_rectangle(x, y, l, h)
@@ -365,7 +363,7 @@ class TextureHandler:
         self.bind_texture(1, None, xf - x0, yf - y0)
         self.bind_texture(2, im, im.shape[0], im.shape[1])
 
-    def bind_texture(self, index, texture, width, height):
+    def bind_texture(self, index: int, texture: np.ndarray or None, width: int, height: int) -> void:
         """ bind and create a texture for the first time in this loc"""
         glBindTexture(GL_TEXTURE_2D, self.texture_array[index])
         glShadeModel(GL_SMOOTH)
@@ -376,7 +374,7 @@ class TextureHandler:
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height,
                      0, GL_RGBA, GL_UNSIGNED_BYTE, texture)
 
-    def bind_update_texture(self, index, texture, width, height):
+    def bind_update_texture(self, index: int, texture: np.ndarray or None, width: int, height: int) -> void:
         """ bind and update a texture in this loc, faster"""
         glBindTexture(GL_TEXTURE_2D, self.texture_array[index])
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
@@ -388,7 +386,7 @@ class TextureHandler:
 
 class ShaderHandler:
 
-    def __init__(self, path):
+    def __init__(self, path: str) -> void:
         f_shader = compileShader(get_file_content(path + ".fs"), GL_FRAGMENT_SHADER)
         v_shader = compileShader(get_file_content(path + ".vs"), GL_VERTEX_SHADER)
         self.shaderProgram = glCreateProgram()
@@ -398,9 +396,10 @@ class ShaderHandler:
         self.texture_location = glGetUniformLocation(self.shaderProgram, "myTexture")
         self.time_location = glGetUniformLocation(self.shaderProgram, "Time")
 
-    def bind(self, data):
+    def bind(self, data: any) -> void:
         glUseProgram(self.shaderProgram)
         glUniform1f(self.time_location, data)
 
-    def unbind(self):
+    @staticmethod
+    def unbind() -> void:
         glUseProgram(0)

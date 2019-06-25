@@ -52,6 +52,7 @@ class Param:
 
     section = cfg["camera"]
     cam_area = section["cam_area"]
+    cam_number = section["cam_number"]
 
     section = cfg["button"]
     hand_area_1 = section["hand_area_1"]

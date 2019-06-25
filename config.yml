@@ -7,6 +7,7 @@ grid:
 
 camera:
   cam_area: [[192,256], [576,768]]
+  cam_number: 1
 
 button:
   hand_area_1: [[200, 768], [376, 1000]]
