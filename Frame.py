@@ -2,37 +2,16 @@ import cv2
 import imutils
 
 from brick import Brick
-from OpenGL.GL import *
-from OpenGL.GL.shaders import *
-from OpenGL.GLUT import *
 import numpy as np
 from time import clock
 from Global_tools import get_file_content, debug_draw_image
-from PIL import Image
 from Global_tools import Param as p
 from Global_tools import glut_print
+from image_tools import *
+from drawing import *
 
 
-class Texture(object):
-    """Texture either loaded from a file or initialised with random colors."""
-
-    def __init__(self):
-        self.xSize, self.ySize = 0, 0
-        self.rawRefence = None
-
-
-class FileTexture(Texture):
-    """Texture loaded from a file."""
-
-    def __init__(self, file_name):
-        super().__init__()
-        im = Image.open(file_name)
-        self.xSize = im.size[0]
-        self.ySize = im.size[1]
-        self.rawReference = im.tobytes("raw", "RGB", 0, -1)
-
-
-class Webcam:
+class Camera:
 
     def __init__(self, width, height):
         # TODO detect the good camera instead of changing the number
@@ -46,47 +25,6 @@ class Webcam:
         _, self.image_raw = self.capture.read()
 
 
-def zoom_center(image):
-    """ zoom in the center of the image"""
-    crop_img = image[p.cam_area[0][0]:p.cam_area[1][0], p.cam_area[0][1]:p.cam_area[1][1]]
-    return imutils.resize(crop_img, width=image.shape[1])
-
-
-def find_center_contours(image):
-    """ find all the contours in the center of a given image"""
-
-    blurred = cv2.GaussianBlur(image, (5, 5), 0)
-    thresh_rgb = blurred.copy()
-
-    # for each color channel
-    for index, channel in enumerate(cv2.split(thresh_rgb)):
-        # make channel binary with an adaptive threshold
-        thresh = cv2.adaptiveThreshold(channel, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 103, 8)
-        # Structure the channel with Rectangle shapes
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 10))
-        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-
-        # merge channels
-        thresh_rgb[:, :, index] = thresh
-
-    # convert into Gray scale(luminance)
-    thresh_gray = cv2.cvtColor(thresh_rgb, cv2.COLOR_RGB2GRAY)
-    # zoom in the center
-    thresh_gray = zoom_center(thresh_gray)
-    image = zoom_center(image)
-    # invert black/white
-    thresh_gray = cv2.bitwise_not(thresh_gray)
-
-    kernel = np.ones((5, 5), np.uint8)
-    thresh_gray = cv2.erode(thresh_gray, kernel, iterations=10)
-
-    # find contours
-    contours = cv2.findContours(thresh_gray.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = imutils.grab_contours(contours)
-
-    return contours, image
-
-
 class Frame:
     """ Take and process webcam frames"""
 
@@ -95,81 +33,78 @@ class Frame:
         self.grid[:] = np.nan
         self.width = width
         self.height = height
-        self.cam = Webcam(width, height)
+        self.cam = Camera(width, height)
+
+        self.renderer = FrameRenderer()
+        self.shader_handler = ShaderHandler("./shader/LavaShader")
 
         self.old_hand_zone = None
         self.triggered = False
         self.wait_time = 1
-        self.wait = False
+        self.stay_triggered = False
+        self.trigger_cooldown = False
         self.triggered_number = 0
         self.shaderProgram = 0
         self.texture_location = 0
         self.time_location = 0
-        self.shader_init()
         self.offset = 0
-        self.lava_height, self.lava_bottom = 1, 0
-        self.shaderclock = clock()
-        self.grid_R_th, self.grid_R_corr = 0, 0
-        # load texture
-        self.lava_texture = FileTexture("./texture/lava_diff.png")
+        self.shader_clock = clock()
+
         self.lava_start = False
+        self.hand_texture = None
+
+        self.tex_handler = TextureHandler()
 
     def update_bricks(self, calibration=False):
         """ Process the current raw frame and return a texture to draw and the  detected bricks"""
 
         image_raw = cv2.cvtColor(self.cam.image_raw, cv2.COLOR_BGR2RGBA)  # convert to RGBA
-        image = adjust_gamma(image_raw.copy(), 1 if calibration else 3)  # enhance gamma of the image
+        image = adjust_gamma(image_raw.copy(), 1 if calibration else 2)  # enhance gamma of the image
 
         contours, image = find_center_contours(image)  # find contours in the center of the image
 
         if calibration:
-            map = add_small_map(cv2.rectangle(image, (0, 0), (image.shape[1], image.shape[0]), (0, 0, 0),
-                                              thickness=20))
-
-            return map, []
+            return image, []
 
         bricks = self.isolate_bricks(contours, image)  # detect bricks
 
-        frame = add_small_map(image)  # put the image in a small part of the frame
+        self.tex_handler.bind_update_texture(0, cv2.flip(image, 0), self.width, self.height)
 
-        return frame, bricks
+        return image, bricks
+
+    def render(self):
+        if p.frame is not None:
+            self.draw_frame(p.frame)
+            self.draw_ui()
+
+            self.draw_lava(p.width / 10, 0, 1.4 * p.width / 10, 2.2 * p.height / 3, 1, 0.250, 0.058)
 
     def draw_frame(self, image, calibrate=False):
         """ Draw the frame with OpenGL as a texture in the entire screen"""
+
+        glClearColor(1, 1, 1, 1)
         if type(image) != int:
+
+            # draw background
+            draw_rectangle(0, 0, p.width, p.height, 1, 1, 1)
+
+            # draw bricks
+            ratio = (1 / 4, 1 / 4)
+            self.draw_texture(0, 0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height)
+            self.draw_texture(1, (1 - ratio[1]) * p.width, 0, ratio[0] * p.width, ratio[1] * p.height)
+
+            if calibrate:
+                draw_rectangle_empty(0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height, 0, 0, 0, 5)
+
+            # draw grid
             y0, x0 = p.cam_area[0]
             yf, xf = p.cam_area[1]
             step_i = int((xf - x0) / p.dim_grille[0])
             step_j = int((yf - y0) / p.dim_grille[1])
-            for i in range(p.dim_grille[0] + 1):
-                image = cv2.line(image, (x0 + i * step_i, y0), (x0 + i * step_i, yf),
-                                 (80, 80, 80) if not calibrate else (0, 0, 0),
-                                 thickness=2 if not calibrate else 10)
-            for j in range(p.dim_grille[1] + 1):
-                image = cv2.line(image, (x0, y0 + j * step_j), (xf, y0 + j * step_j),
-                                 (80, 80, 80) if not calibrate else (0, 0, 0),
-                                 thickness=2 if not calibrate else 10)
-
-            # Create Texture
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.width, self.height, 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, cv2.flip(image, 0))
-
-            glEnable(GL_TEXTURE_2D)
-
-            glColor3f(1.0, 1.0, 1.0)
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-
-            # Draw textured Quads
-            glBegin(GL_QUADS)
-            glTexCoord2f(0.0, 0.0)
-            glVertex2f(0.0, 0.0)
-            glTexCoord2f(1.0, 0.0)
-            glVertex2f(self.width, 0.0)
-            glTexCoord2f(1.0, 1.0)
-            glVertex2f(self.width, self.height)
-            glTexCoord2f(0.0, 1.0)
-            glVertex2f(0.0, self.height)
-            glEnd()
+            for i in range(p.dim_grille[0]):
+                for j in range(p.dim_grille[1]):
+                    draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j,
+                                         0, 0, 0, 5 if calibrate else 0.2)
 
     def draw_ui(self):
         """ Draw user interface and decoration"""
@@ -180,7 +115,27 @@ class Frame:
         else:
             draw_rectangle(x0 + 40, yf, xf - x0, yf - y0, 0, 1, 0)
 
-        glut_print(x0 + 40 + 0.2 * (xf - x0), yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, "START", 0, 0, 0, 1.0, 1)
+        glut_print(x0 + 40 + 0.2 * (xf - x0), yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, "", 0, 0, 0, 1.0, 1)
+
+        # draw board informations
+
+        x_start = 2.5 * p.width / 10
+
+        if 0 <= clock() % (3 * p.swap_time) <= p.swap_time or not p.swap:
+            self.draw_temperatures(x_start, 0, p.brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Temperatures", 0.0, 0.0, 0.0, 1.0, 1)
+
+        elif p.swap_time <= clock() % (3 * p.swap_time) <= 2 * p.swap_time:
+            self.draw_resistance_th(x_start, 0, p.brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances thermiques", 0.0, 0.0, 0.0, 1.0, 1)
+
+        else:
+            self.draw_resistance_corr(x_start, 0, p.brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances à la corrosion", 0.0, 0.0, 0.0, 1.0, 1)
+            pass
+
+        glut_print(x_start, p.height - 30, GLUT_BITMAP_HELVETICA_18,
+                   "Nombre de coulées : %i" % p.f.triggered_number, 0.0, 0.0, 0.0, 1.0, 20)
 
     def isolate_bricks(self, contours, image):
         """ create bricks from contours"""
@@ -246,46 +201,54 @@ class Frame:
     def detect_hand(self):
         """ Detect hand in the button area """
         # hand detector cooldown
-        if self.wait:
-            self.lava_bottom = max(0.0, self.lava_bottom - 0.05)
-            if clock() - self.wait_time >= 0.5:
-                self.wait = False
+        if self.stay_triggered:
+            if clock() - self.wait_time >= 2.0:
+                self.stay_triggered = False
+                self.trigger_cooldown = True
+                self.wait_time = clock()
             return False
 
-        # CIE color space for visual differences
-        image_raw = cv2.cvtColor(self.cam.image_raw, cv2.COLOR_BGR2RGB)
-        image_raw = adjust_gamma(image_raw, 2)
+        elif self.trigger_cooldown:
+            if clock() - self.wait_time >= 2.0:
+                self.trigger_cooldown = False
+                y0, x0 = p.hand_area_1[0]
+                yf, xf = p.hand_area_1[1]
+                crop = cv2.cvtColor(crop_zone(self.cam.image_raw, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
+                self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
+            return False
 
         # crop to the button zone
         y0, x0 = p.hand_area_1[0]
         yf, xf = p.hand_area_1[1]
-        crop = crop_zone(image_raw, x0, y0, xf - x0, yf - y0)
+        crop = cv2.cvtColor(crop_zone(self.cam.image_raw, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
 
-        # if first time, set reference to this
-        if self.old_hand_zone is None:
-            self.old_hand_zone = crop
+        # Luminance analysis is enough
+        crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        crop_gray = cv2.GaussianBlur(crop_gray, (5, 5), 13)
+        crop_gray = cv2.Canny(crop_gray, 40, 40)
 
-        # compute difference between reference and now
-        diff = cv2.subtract(self.old_hand_zone, crop)
-        # take maximal value of difference, every pxls of diff should be black if nothing changed
-        value = np.max(diff[:, :, :])
+        # enlarge shapes
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 9))
+        crop_gray = cv2.dilate(crop_gray, kernel, 10)
 
-        # if above the threshold, trigger the button
-        self.triggered = value > p.hand_threshold
-        print(value)
+        # help to close contours
+        crop_gray[-1:, :] = 255
+        crop_gray[:, :1] = 255
+        crop_gray[:, -1:] = 255
 
-        # if below the threshold, change the reference to this to counter light changes
-        # if 5 < value < 90:
-        #    self.old_hand_zone = crop
+        # find contour with a large enough area
+        for c in cv2.findContours(crop_gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]:
+            self.triggered = cv2.contourArea(c) > p.hand_threshold
+            if self.triggered:
+                cv2.drawContours(crop, c, -1, (255, 0, 0), 3)
+                self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
+                self.stay_triggered = True
+                self.wait_time = clock()
+                self.triggered_number += 1
+                self.lava_start = True
+                break
 
-        # activate cooldown and setup "lava" drawing
-        if self.triggered:
-            self.wait = True
-            self.wait_time = clock()
-            self.triggered_number += 1
-            self.lava_start = True
-
-        return self.triggered
+        self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
 
     def draw_lava(self, x_s, y_s, w, h, r, g, b):
         """ draw "lava" from a texture"""
@@ -298,44 +261,18 @@ class Frame:
         # load shader
 
         if self.triggered:
-            glUseProgram(self.shaderProgram)
-            # update offset from clock to scroll the texture
-            delta_t = clock() - self.shaderclock
+            delta_t = clock() - self.shader_clock
             self.offset += delta_t * 0.01
-            self.shaderclock = clock()
+            self.shader_clock = clock()
 
-            glUniform1f(self.time_location, self.offset)
-            glShadeModel(GL_SMOOTH)
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-            glTexImage2D(GL_TEXTURE_2D, 0, 3, self.lava_texture.xSize, self.lava_texture.ySize, 0,
-                         GL_RGB, GL_UNSIGNED_BYTE, self.lava_texture.rawReference)
-
+            self.shader_handler.bind(data=self.offset)
+            # update offset from clock to scroll the texture
             glEnable(GL_TEXTURE_2D)
-
-            glPushMatrix()
-
-            glTranslatef(x_s, y_s, 0)
-            glScalef(w, h, 1)
-
-            glColor3f(1, 1, 1)
-
-            glBegin(GL_QUADS)
-            glTexCoord2f(0.0, self.lava_height)
-            glVertex2f(0.0, self.lava_height)
-            glTexCoord2f(0.0, self.lava_bottom)
-            glVertex2f(0.0, self.lava_bottom)
-            glTexCoord2f(1.0, self.lava_bottom)
-            glVertex2f(1.0, self.lava_bottom)
-            glTexCoord2f(1.0, self.lava_height)
-            glVertex2f(1, self.lava_height)
-            glEnd()
-
-            glPopMatrix()
+            self.tex_handler.use_texture(2)
+            draw_textured_rectangle(x_s, y_s, w, h)
             glDisable(GL_TEXTURE_2D)
-            glUseProgram(0)
+
+            self.shader_handler.unbind()
 
         draw_rectangle(x_s, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
         draw_rectangle(x_s + .5 * w + 20, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
@@ -345,16 +282,6 @@ class Frame:
         draw_rectangle(x_s, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
         draw_rectangle(x_s + .5 * w + 20, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
 
-    def shader_init(self):
-        f_shader = compileShader(get_file_content("./shader/LavaShader.fs"), GL_FRAGMENT_SHADER)
-        v_shader = compileShader(get_file_content("./shader/LavaShader.vs"), GL_VERTEX_SHADER)
-        self.shaderProgram = glCreateProgram()
-        glAttachShader(self.shaderProgram, v_shader)
-        glAttachShader(self.shaderProgram, f_shader)
-        glLinkProgram(self.shaderProgram)
-        self.texture_location = glGetUniformLocation(self.shaderProgram, "myTexture")
-        self.time_location = glGetUniformLocation(self.shaderProgram, "Time")
-
     def draw_resistance_th(self, x_s, y_s, bricks):
         r_th = 255 * self.grid[:, :, 0]
         y0, x0 = p.cam_area[0]
@@ -362,8 +289,8 @@ class Frame:
         step = int((xf - x0) / p.dim_grille[0])
         for index_c, t_l in enumerate(r_th):
             for index_l, t in enumerate(t_l):
-                b_xy = Brick.get_brick(bricks, index_c, index_l)
-                t = b_xy.r_th if b_xy is not None else np.nan
+                b_xy = bricks.get(index_c, index_l)
+                t = b_xy.material.r_th if b_xy is not None else np.nan
                 if not np.isnan(t):
                     draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
                 else:
@@ -371,7 +298,7 @@ class Frame:
 
                 if b_xy is not None:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
-                               GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.r_th), 1, 1, 1, 1.0, 1)
+                               GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_th), 1, 1, 1, 1.0, 1)
 
     def draw_resistance_corr(self, x_s, y_s, bricks):
         r_corr = 255 * self.grid[:, :, 1]
@@ -380,8 +307,8 @@ class Frame:
         step = int((xf - x0) / p.dim_grille[0])
         for index_c, t_l in enumerate(r_corr):
             for index_l, t in enumerate(t_l):
-                b_xy = Brick.get_brick(bricks, index_c, index_l)
-                t = b_xy.r_cor if b_xy is not None else np.nan
+                b_xy = bricks.get(index_c, index_l)
+                t = b_xy.material.r_cor if b_xy is not None else np.nan
                 if not np.isnan(t):
                     draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
                 else:
@@ -389,7 +316,7 @@ class Frame:
 
                 if b_xy is not None:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
-                               GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.r_cor), 1, 1, 1, 1.0, 1)
+                               GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_cor), 1, 1, 1, 1.0, 1)
 
     def draw_temperatures(self, x_s, y_s, bricks):
         r_th = 255 * self.grid[:, :, 0]
@@ -398,8 +325,8 @@ class Frame:
         step = int((xf - x0) / p.dim_grille[0])
         for index_c, t_l in enumerate(r_th):
             for index_l, t in enumerate(t_l):
-                b_xy = Brick.get_brick(bricks, index_c, index_l)
-                t = b_xy.T_in / 1_600 if b_xy is not None else np.nan
+                b_xy = bricks.get(index_c, index_l)
+                t = b_xy.material.T_in / 1_600 if b_xy is not None else np.nan
                 if not np.isnan(t):
                     draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
                 else:
@@ -407,43 +334,73 @@ class Frame:
 
                 if b_xy is not None:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
-                               GLUT_BITMAP_HELVETICA_12, "%0.0f" % (b_xy.T_in - 273), 1, 1, 1, 1.0, 1)
+                               GLUT_BITMAP_HELVETICA_12, "%0.0f" % (b_xy.material.T_in - 273), 1, 1, 1, 1.0, 1)
+
+    def draw_texture(self, tex_loc, x, y, l, h):
+        glEnable(GL_TEXTURE_2D)
+        self.tex_handler.use_texture(tex_loc)
+        draw_textured_rectangle(x, y, l, h)
+        glDisable(GL_TEXTURE_2D)
 
 
-def add_small_map(image, x_offset=0, y_offset=0, x_scale=0.35, y_scale=0.15):
-    blank = 255 * np.ones(image.shape)
-    new_image = cv2.resize(image, (int(x_scale * image.shape[0]), int(y_scale * image.shape[1])))
-    blank[int(y_offset):int(y_offset + new_image.shape[0]),
-    int(x_offset):int(x_offset + new_image.shape[1])] = new_image
-    return blank
+class FrameRenderer:
+
+    def __init__(self):
+        pass
+
+    def render(self):
+        pass
 
 
-def draw_rectangle(x_s, y_s, w, h, r, g, b):
-    glUseProgram(0)
-    glClearColor(0, 0, 0, 1)
-    glPushMatrix()
-    glColor3f(r, g, b)
-    glTranslatef(x_s, y_s, 0)
-    glScalef(w, h, 1)
-    glBegin(GL_QUADS)  # start drawing a rectangle
-    glVertex2f(0, 0)  # bottom left point
-    glVertex2f(1, 0)  # bottom right point
-    glVertex2f(1, 1)  # top right point
-    glVertex2f(0, 1)  # top left point
-    glEnd()
-    glPopMatrix()
+class TextureHandler:
+    def __init__(self):
+        # load texture
+        self.texture_array = glGenTextures(3)
+        lava_texture = cv2.imread("./texture/lava_diff.png")
+        im = cv2.cvtColor(lava_texture, cv2.COLOR_BGR2RGBA)
+
+        self.bind_texture(0, None, p.width, p.height)
+        y0, x0 = p.hand_area_1[0]
+        yf, xf = p.hand_area_1[1]
+        self.bind_texture(1, None, xf - x0, yf - y0)
+        self.bind_texture(2, im, im.shape[0], im.shape[1])
+
+    def bind_texture(self, index, texture, width, height):
+        """ bind and create a texture for the first time in this loc"""
+        glBindTexture(GL_TEXTURE_2D, self.texture_array[index])
+        glShadeModel(GL_SMOOTH)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height,
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, texture)
+
+    def bind_update_texture(self, index, texture, width, height):
+        """ bind and update a texture in this loc, faster"""
+        glBindTexture(GL_TEXTURE_2D, self.texture_array[index])
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE, texture)
+
+    def use_texture(self, index):
+        glBindTexture(GL_TEXTURE_2D, self.texture_array[index])
 
 
-def adjust_gamma(image, gamma=2.0):
-    # build a lookup table mapping the pixel values [0, 255] to
-    # their adjusted gamma values
-    inv_gamma = 1.0 / gamma
-    table = np.array([((i / 255.0) ** inv_gamma) * 255
-                      for i in np.arange(0, 256)]).astype("uint8")
+class ShaderHandler:
 
-    # apply gamma correction using the lookup table
-    return cv2.LUT(image, table)
+    def __init__(self, path):
+        f_shader = compileShader(get_file_content(path + ".fs"), GL_FRAGMENT_SHADER)
+        v_shader = compileShader(get_file_content(path + ".vs"), GL_VERTEX_SHADER)
+        self.shaderProgram = glCreateProgram()
+        glAttachShader(self.shaderProgram, v_shader)
+        glAttachShader(self.shaderProgram, f_shader)
+        glLinkProgram(self.shaderProgram)
+        self.texture_location = glGetUniformLocation(self.shaderProgram, "myTexture")
+        self.time_location = glGetUniformLocation(self.shaderProgram, "Time")
 
+    def bind(self, data):
+        glUseProgram(self.shaderProgram)
+        glUniform1f(self.time_location, data)
 
-def crop_zone(image, x, y, l, h):
-    return image[int(y):int(y + h), int(x):int(x + l)]
+    def unbind(self):
+        glUseProgram(0)

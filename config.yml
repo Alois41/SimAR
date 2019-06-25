@@ -1,0 +1,46 @@
+screen:
+  width: 1024
+  height: 768
+
+grid:
+  dim_grille: [7,4,2]
+
+camera:
+  cam_area: [[192,256], [576,768]]
+
+button:
+  hand_area_1: [[200, 768], [376, 1000]]
+  hand_threshold: 9_000 # pxl area
+
+
+brick:
+  min_brick_size: 2_000.0 # pxl area
+  max_brick_size: 20_000.0 # pxl area
+
+program:
+  swap: True # swap between display panels
+  swap_time: 3
+
+color:
+  # hue: name
+  60: "Yellow"
+  340: "Magenta"
+  190: "Cyan"
+  35: "Orange"
+  0: "Red"
+  80: "Green"
+
+color_mat:
+  # name: [r_thermique, r_corrosion]
+  "Black": [0, 0]
+  "Blue": [0, 0]
+  "Yellow": [0.2, 0.1]
+  "Magenta": [0.6, 0.078]
+  "Cyan": [0, 1]
+  "Orange": [0.1, 0.2]
+  "Red": [0.6, 0]
+  "Green": [0.01, 1]
+
+steel:
+  temperature: 1600 # K
+  cooling: 0.01 # K/s

@@ -4,6 +4,8 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 from OpenGL.GLUT.fonts import *
 import numpy as np
+import yaml
+
 
 def get_file_content(file):
     content = open(file, 'r').read()
@@ -36,33 +38,50 @@ def glut_print(x, y, font, text, r, g, b, a, scale):
 
 
 class Param:
-    width = 1024
-    height = 768
-    nRange = 1.0
+    with open("config.yml", 'r') as file:
+        cfg = yaml.load(file)
 
-    cam_area = ((192, 256), (576, 768))
-    hand_area_1 = ((200, 768), (376, 1024))
+    # Var from config
+
+    section = cfg["screen"]
+    width = section["width"]
+    height = section["height"]
+
+    section = cfg["grid"]
+    dim_grille = section["dim_grille"]
+
+    section = cfg["camera"]
+    cam_area = section["cam_area"]
+
+    section = cfg["button"]
+    hand_area_1 = section["hand_area_1"]
+    hand_threshold = section["hand_threshold"]
+
+    section = cfg["brick"]
+    min_brick_size = section["min_brick_size"]
+    max_brick_size = section["max_brick_size"]
+
+    section = cfg["program"]
+    swap = section["swap"]
+    swap_time = section["swap_time"]
+
+    color_dict = cfg["color"]
+    color_to_mat = cfg["color_mat"]
+
+    section = cfg["steel"]
+    temperature = section["temperature"]
+    cooling = section["cooling"]
+
+    # Global var
+
     cam_area_width = cam_area[0][1] - cam_area[0][0]
     cam_area_height = cam_area[1][1] - cam_area[1][0]
-
-    dim_grille = (7, 4, 2)
-
-    f, brick_array = None, []
+    nRange = 1.0
+    f, brick_array = None, None
     frame, frame_hand = None, None
     t_chamber = 293
     t_ref = clock()
+    hand_text = None
 
-    min_brick_size = 2_000.0
-    max_brick_size = 20_000.0
-
-    hand_threshold = 100
-
-    color_dict = \
-        {
-            60: "Yellow",
-            340: "Magenta",
-            190: "Cyan",
-            35: "Orange",
-            0: "Red",
-            80: "Green"
-        }
+    updating = False
+    update_timer = 0
