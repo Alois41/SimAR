@@ -10,8 +10,10 @@ camera:
   cam_number: 1
 
 button:
-  hand_area_1: [[200, 768], [376, 1000]]
-  hand_threshold: 9_000 # pxl area
+  hand_area_1: [[326, 900], [376, 1000]]
+  hand_area_2: [[326, 0], [376, 100]]
+  hand_threshold_1: 1_000 # pxl area
+  hand_threshold_2: 1_000 # pxl area
 
 
 brick:
@@ -19,7 +21,7 @@ brick:
   max_brick_size: 20_000.0 # pxl area
 
 program:
-  swap: True # swap between display panels
+  swap: False # swap between display panels
   swap_time: 3
 
 color:
@@ -44,4 +46,5 @@ color_mat:
 
 steel:
   temperature: 1600 # K
-  cooling: 0.01 # K/s
+  cooling: False
+  cooling_factor: 0.01 # K/s

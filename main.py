@@ -4,11 +4,10 @@ from OpenGL.GLUT import *
 from Frame import Frame
 from OpenGL.GLU import *
 from OpenGL.GLUT.fonts import *
-import numpy as np
-from Global_tools import glut_print
 from Global_tools import Param as p
 from brick import Brick, BrickArray
-import time
+
+import main__init__
 
 
 def init():
@@ -24,33 +23,41 @@ def idle():
     # capture next frame
     p.delta_t = clock() - p.t_ref
 
-    # update contours
+    # update frame
     p.f.cam.take_frame()
+    # TODO: separate f for modes
     p.frame, new_bricks = p.f.update_bricks()
 
-    # new_bricks = p.brick_array if p.f.triggered else new_bricks
+    if p.mode == 0:  # building mode
 
-    if p.brick_array is None or len(p.brick_array.array) == 0:
-        p.brick_array = BrickArray(new_bricks)
+        # new_bricks = p.brick_array if p.f.triggered else new_bricks
 
-    else:
-        p.brick_array.invalidate()
-        for nb in new_bricks:
-            prev_b = p.brick_array.get(nb.indexes[0][0], nb.indexes[0][1])
-            if prev_b is not None:
-                prev_b.replace(nb, p.f.grid)
-            else:
-                for index in nb.indexes:
-                    print("Brick added: " + str(nb.indexes[0]) + nb.material.color)
-                    p.brick_array.set(index[0], index[1], nb)
+        if p.brick_array is None or len(p.brick_array.array) == 0:
+            p.brick_array = BrickArray(new_bricks)
 
-        p.brick_array.clear_invalid()
+        else:
+            p.brick_array.invalidate()
+            for nb in new_bricks:
+                prev_b = p.brick_array.get(nb.indexes[0][0], nb.indexes[0][1])
+                if prev_b is not None:
+                    prev_b.replace(nb, p.f.grid)
+                else:
+                    for index in nb.indexes:
+                        print("Brick added: " + str(nb.indexes[0]) + nb.material.color)
+                        p.brick_array.set(index[0], index[1], nb)
 
-    for j in range(p.dim_grille[1]):
-        b = p.brick_array.get(0, j)
-        if b is not None:
-            p.t_chamber = p.temperature if p.f.triggered else max(p.t_chamber - p.cooling * p.delta_t, 293)
-            p.brick_array.update(p.t_chamber)
+            p.brick_array.clear_invalid()
+
+    elif p.mode == 1:  # testing mode
+        for j in range(p.dim_grille[1]):
+            b = p.brick_array.get(0, j)
+            if b is not None:
+                if p.cooling:
+                    p.t_chamber = p.temperature if p.f.triggered_start \
+                        else max(p.t_chamber - p.cooling_factor * p.delta_t, 293)
+                    p.brick_array.update(p.t_chamber)
+                else:
+                    p.brick_array.update(p.temperature, p.f.triggered_start)
 
     p.hand_text = p.f.detect_hand()
     glutPostRedisplay()
@@ -70,7 +77,6 @@ def display():
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
     p.f.render()
-
     glutSwapBuffers()
 
 
@@ -95,15 +101,12 @@ def keyboard(key, x, y):
         sys.exit()
 
 
-def main():
-    glutInit(sys.argv)
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
-    glutInitWindowSize(p.width, p.height)
-    glutInitWindowPosition(1366 + 1, 0)  # main window dim + 1
-    glutCreateWindow("OpenGL + OpenCV")
-    glutFullScreen()
-    init()
-    glutMainLoop()
+glutInit(sys.argv)
+glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+glutInitWindowSize(p.width, p.height)
+glutInitWindowPosition(1366 + 1, 0)  # main window dim + 1
+glutCreateWindow("OpenGL + OpenCV")
+glutFullScreen()
+init()
+glutMainLoop()
 
-
-main()

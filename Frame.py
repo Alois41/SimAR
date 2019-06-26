@@ -1,14 +1,11 @@
-import cv2
-import imutils
-
 from brick import Brick
-import numpy as np
 from time import clock
-from Global_tools import get_file_content, debug_draw_image
+from Global_tools import get_file_content
 from Global_tools import Param as p
 from Global_tools import glut_print
 from image_tools import *
 from drawing import *
+from OpenGL.GL import *
 
 
 class Camera:
@@ -35,11 +32,10 @@ class Frame:
         self.height = height
         self.cam = Camera(width, height)
 
-        self.renderer = FrameRenderer()
         self.shader_handler = ShaderHandler("./shader/LavaShader")
 
         self.old_hand_zone = None
-        self.triggered = False
+        self.triggered_start, self.triggered_reset = False, False
         self.wait_time = 1
         self.stay_triggered = False
         self.trigger_cooldown = False
@@ -50,10 +46,12 @@ class Frame:
         self.offset = 0
         self.shader_clock = clock()
 
-        self.lava_start = False
         self.hand_texture = None
 
         self.tex_handler = TextureHandler()
+
+        self.buttonStart = HandButton(3, self.tex_handler, p.hand_area_1, p.hand_threshold_1)
+        self.buttonReset = HandButton(3, None, p.hand_area_2, p.hand_threshold_2)
 
     def update_bricks(self, calibration: bool = False) -> (np.ndarray, list):
         """ Process the current raw frame and return a texture to draw and the  detected bricks"""
@@ -96,8 +94,11 @@ class Frame:
                 draw_rectangle_empty(0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height, 0, 0, 0, 5)
 
             # draw grid
+
             y0, x0 = p.cam_area[0]
             yf, xf = p.cam_area[1]
+            if p.mode == 1:
+                draw_rectangle(x0, y0, xf-x0, yf-y0, 0, 0, 0)
             step_i = int((xf - x0) / p.dim_grille[0])
             step_j = int((yf - y0) / p.dim_grille[1])
             for i in range(p.dim_grille[0]):
@@ -107,14 +108,29 @@ class Frame:
 
     def draw_ui(self) -> void:
         """ Draw user interface and decoration"""
+
+        # draw button interface (start)
+
         y0, x0 = p.hand_area_1[0]
         yf, xf = p.hand_area_1[1]
-        if not self.triggered:
-            draw_rectangle(x0 + 40, yf, xf - x0, yf - y0, 0.4, 0.4, 0.4)
+        if not self.triggered_start:
+            draw_rectangle(x0, yf, xf - x0, yf - y0, 0.4, 0.4, 0.4)
         else:
-            draw_rectangle(x0 + 40, yf, xf - x0, yf - y0, 0, 1, 0)
+            draw_rectangle(x0, yf, xf - x0, yf - y0, 0, 1, 0)
 
-        glut_print(x0 + 40 + 0.2 * (xf - x0), yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, "", 0, 0, 0, 1.0, 1)
+        str = "START" if p.mode == 0 else "NEXT"
+        glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, str, 0, 0, 0, 1.0, 1)
+
+        # draw button interface (reset)
+
+        y0, x0 = p.hand_area_2[0]
+        yf, xf = p.hand_area_2[1]
+        if not self.triggered_reset:
+            draw_rectangle(x0, yf, xf - x0, yf - y0, 0.4, 0.4, 0.4)
+        else:
+            draw_rectangle(x0, yf, xf - x0, yf - y0, 0, 1, 0)
+
+        glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, "RESET", 0, 0, 0, 1.0, 1)
 
         # draw board informations
 
@@ -133,8 +149,8 @@ class Frame:
             glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances à la corrosion", 0.0, 0.0, 0.0, 1.0, 1)
             pass
 
-        glut_print(x_start, p.height - 30, GLUT_BITMAP_HELVETICA_18,
-                   "Nombre de coulées : %i" % p.f.triggered_number, 0.0, 0.0, 0.0, 1.0, 20)
+        str = "Nombre de coulées : %i" % p.f.triggered_number if p.mode == 1 else "Construction"
+        glut_print(x_start, p.height - 30, GLUT_BITMAP_HELVETICA_18, str, 0.0, 0.0, 0.0, 1.0, 20)
 
     def isolate_bricks(self, contours: list, image: np.ndarray) -> list:
         """ create bricks from contours"""
@@ -197,56 +213,18 @@ class Frame:
         return bricks
 
     def detect_hand(self) -> void:
-        """ Detect hand in the button area """
-        # hand detector cooldown
-        if self.stay_triggered:
-            if clock() - self.wait_time >= 2.0:
-                self.stay_triggered = False
-                self.trigger_cooldown = True
-                self.wait_time = clock()
-            return
-
-        elif self.trigger_cooldown:
-            if clock() - self.wait_time >= 2.0:
-                self.trigger_cooldown = False
-                y0, x0 = p.hand_area_1[0]
-                yf, xf = p.hand_area_1[1]
-                crop = cv2.cvtColor(crop_zone(self.cam.image_raw, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
-                self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
-            return
-
-        # crop to the button zone
-        y0, x0 = p.hand_area_1[0]
-        yf, xf = p.hand_area_1[1]
-        crop = cv2.cvtColor(crop_zone(self.cam.image_raw, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
-
-        # Luminance analysis is enough
-        crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        crop_gray = cv2.GaussianBlur(crop_gray, (5, 5), 13)
-        crop_gray = cv2.Canny(crop_gray, 40, 40)
-
-        # enlarge shapes
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 9))
-        crop_gray = cv2.dilate(crop_gray, kernel, 10)
-
-        # help to close contours
-        crop_gray[-1:, :] = 255
-        crop_gray[:, :1] = 255
-        crop_gray[:, -1:] = 255
-
-        # find contour with a large enough area
-        for c in cv2.findContours(crop_gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]:
-            self.triggered = cv2.contourArea(c) > p.hand_threshold
-            if self.triggered:
-                cv2.drawContours(crop, c, -1, (255, 0, 0), 3)
-                self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
-                self.stay_triggered = True
-                self.wait_time = clock()
+        self.triggered_start, new = self.buttonStart.detect_hand(self.cam.image_raw)
+        if new:
+            if p.mode == 0:
+                p.mode = 1
+            elif p.mode == 1:
                 self.triggered_number += 1
-                self.lava_start = True
-                break
 
-        self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), crop.shape[1], crop.shape[0])
+        self.triggered_reset, new = self.buttonReset.detect_hand(self.cam.image_raw)
+        if self.triggered_reset:
+            self.triggered_number = 0
+            p.brick_array.reset()  # temperature reset
+            p.mode = 0
 
     def draw_lava(self, x_s: int, y_s: int, w: int, h: int, r: float, g: float, b: float) -> void:
         """ draw "lava" from a texture"""
@@ -258,7 +236,7 @@ class Frame:
 
         # load shader
 
-        if self.triggered:
+        if self.triggered_start:
             delta_t = clock() - self.shader_clock
             self.offset += delta_t * 0.01
             self.shader_clock = clock()
@@ -280,7 +258,7 @@ class Frame:
         draw_rectangle(x_s, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
         draw_rectangle(x_s + .5 * w + 20, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
 
-    def draw_resistance_th(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
+    def draw_resistance_th(self, x_s: int, y_s: int, bricks) -> void:
         r_th = 255 * self.grid[:, :, 0]
         y0, x0 = p.cam_area[0]
         yf, xf = p.cam_area[1]
@@ -298,7 +276,7 @@ class Frame:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_th), 1, 1, 1, 1.0, 1)
 
-    def draw_resistance_corr(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
+    def draw_resistance_corr(self, x_s: int, y_s: int, bricks) -> void:
         r_corr = 255 * self.grid[:, :, 1]
         y0, x0 = p.cam_area[0]
         yf, xf = p.cam_area[1]
@@ -316,7 +294,7 @@ class Frame:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_cor), 1, 1, 1, 1.0, 1)
 
-    def draw_temperatures(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
+    def draw_temperatures(self, x_s: int, y_s: int, bricks) -> void:
         r_th = 255 * self.grid[:, :, 0]
         y0, x0 = p.cam_area[0]
         yf, xf = p.cam_area[1]
@@ -341,13 +319,77 @@ class Frame:
         glDisable(GL_TEXTURE_2D)
 
 
-class FrameRenderer:
+class HandButton:
 
-    def __init__(self):
+    def __init__(self, wait_time: float, texture_handler, hand_area: list, threshold: int) -> void:
+        self.stay_triggered = False
+        self.trigger_cooldown = False
+        self.wait_time = wait_time
+        self.tex_handler = texture_handler
+        self.hand_area = hand_area
+        self.threshold = threshold
+
+        y0, x0 = self.hand_area[0]
+        yf, xf = self.hand_area[1]
+        if self.tex_handler is not None:
+            self.tex_handler.bind_texture(1, None, xf - x0, yf - y0)
         pass
 
-    def render(self):
-        pass
+    def detect_hand(self, image: np.ndarray) -> void:
+        """ Detect hand in the button area """
+        # hand detector cooldown
+
+        y0, x0 = self.hand_area[0]
+        yf, xf = self.hand_area[1]
+
+        if self.stay_triggered:
+            if clock() - self.wait_time >= 2.0:
+                self.stay_triggered = False
+                self.trigger_cooldown = True
+                self.wait_time = clock()
+            return True, False
+        elif self.trigger_cooldown:
+            if clock() - self.wait_time >= 2.0:
+                self.trigger_cooldown = False
+
+                crop = cv2.cvtColor(crop_zone(image, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
+                if self.tex_handler is not None:
+                    self.tex_handler.bind_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
+            return True, False
+
+        # crop to the button zone
+        crop = cv2.cvtColor(crop_zone(image, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
+
+        # Luminance analysis is enough
+        crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        crop_gray = cv2.GaussianBlur(crop_gray, (5, 5), 13)
+        crop_gray = cv2.Canny(crop_gray, 40, 40)
+
+        # enlarge shapes
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 9))
+        crop_gray = cv2.dilate(crop_gray, kernel, 10)
+
+        # help to close contours
+        crop_gray[-1:, :] = 255
+        crop_gray[:, :1] = 255
+        crop_gray[:, -1:] = 255
+
+        # find contour with a large enough area
+        for c in cv2.findContours(crop_gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]:
+            triggered = cv2.contourArea(c) > self.threshold
+            # print(cv2.contourArea(c))
+            if triggered:
+                cv2.drawContours(crop, c, -1, (255, 0, 0), 3)
+                if self.tex_handler is not None:
+                    self.tex_handler.bind_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
+                self.stay_triggered = True
+                self.wait_time = clock()
+                return True, True
+
+        if self.tex_handler is not None:
+            crop = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGBA)
+            self.tex_handler.bind_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
+        return False, False
 
 
 class TextureHandler:
@@ -358,9 +400,7 @@ class TextureHandler:
         im = cv2.cvtColor(lava_texture, cv2.COLOR_BGR2RGBA)
 
         self.bind_texture(0, None, p.width, p.height)
-        y0, x0 = p.hand_area_1[0]
-        yf, xf = p.hand_area_1[1]
-        self.bind_texture(1, None, xf - x0, yf - y0)
+        self.bind_texture(1, None, p.width, p.height)
         self.bind_texture(2, im, im.shape[0], im.shape[1])
 
     def bind_texture(self, index: int, texture: np.ndarray or None, width: int, height: int) -> void:

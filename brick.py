@@ -152,12 +152,13 @@ class BrickArray:
                         print("Brick removed: " + str(index) + brick.material.color)
                         self.set(index[0], index[1], None)
 
-    def update(self, t_liquid) -> void:
+    def update(self, t_liquid, heating = True) -> void:
 
         # update heat for brick in contact to the liquid
-        for brick in self.array[0]:
-            if brick is not None:
-                brick.material.update(t_liquid, 1)
+        if heating:
+            for brick in self.array[0]:
+                if brick is not None:
+                    brick.material.update(t_liquid, 1)
 
         # update heat for brick in contact to the liquid
         for column in self.array:
@@ -172,3 +173,9 @@ class BrickArray:
                         pass
 
             pass
+
+    def reset(self) -> void:
+        for column in self.array:
+            for brick in column:
+                if brick is not None:
+                    brick.material.T_in = 293

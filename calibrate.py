@@ -3,8 +3,6 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from Frame import Frame
 from OpenGL.GLU import *
-from OpenGL.GLUT.fonts import *
-import numpy as np
 from Global_tools import Param as P
 
 

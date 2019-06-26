@@ -2,21 +2,12 @@ from time import clock
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
-from OpenGL.GLUT.fonts import *
-import numpy as np
 import yaml
 
 
 def get_file_content(file):
     content = open(file, 'r').read()
     return content
-
-
-def debug_draw_image(image):
-    import matplotlib.pyplot as plt
-    plt.ion()
-    plt.imshow(image)
-    plt.pause(0.01)
 
 
 def glut_print(x, y, font, text, r, g, b, a, scale):
@@ -56,7 +47,9 @@ class Param:
 
     section = cfg["button"]
     hand_area_1 = section["hand_area_1"]
-    hand_threshold = section["hand_threshold"]
+    hand_area_2 = section["hand_area_2"]
+    hand_threshold_1 = section["hand_threshold_1"]
+    hand_threshold_2 = section["hand_threshold_2"]
 
     section = cfg["brick"]
     min_brick_size = section["min_brick_size"]
@@ -72,6 +65,7 @@ class Param:
     section = cfg["steel"]
     temperature = section["temperature"]
     cooling = section["cooling"]
+    cooling_factor = section["cooling_factor"]
 
     # Global var
 
@@ -86,3 +80,5 @@ class Param:
 
     updating = False
     update_timer = 0
+
+    mode = 0
