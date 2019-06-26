@@ -5,9 +5,7 @@ from Frame import Frame
 from OpenGL.GLU import *
 from OpenGL.GLUT.fonts import *
 from Global_tools import Param as p
-from brick import Brick, BrickArray
-
-import main__init__
+from brick import BrickArray
 
 
 def init():
@@ -53,11 +51,11 @@ def idle():
             b = p.brick_array.get(0, j)
             if b is not None:
                 if p.cooling:
-                    p.t_chamber = p.temperature if p.f.triggered_start \
+                    p.t_chamber = p.temperature if p.f.triggered_start and p.f.triggered_number > 0 \
                         else max(p.t_chamber - p.cooling_factor * p.delta_t, 293)
                     p.brick_array.update(p.t_chamber)
                 else:
-                    p.brick_array.update(p.temperature, p.f.triggered_start)
+                    p.brick_array.update(p.temperature, p.f.triggered_start and p.f.triggered_number > 0)
 
     p.hand_text = p.f.detect_hand()
     glutPostRedisplay()

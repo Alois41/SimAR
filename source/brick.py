@@ -30,9 +30,15 @@ class Brick:
 
     def replace(self, brick, grid):
         self.is_invalid = False
+        self.material.is_broken = False
 
     def invalidate(self):
         self.is_invalid = True
+
+    def update(self, t_contact, prev_r_th, temp: list = None) -> void:
+        self.material.update(t_contact, t_contact, temp)
+        if self.material.temperature > 500:
+            self.material.is_broken = True
 
 
 class BrickRenderer:
@@ -54,7 +60,7 @@ class BrickRenderer:
         angle = -b.geometry.angle
 
         glUseProgram(self.shaderProgram)
-        glUniform1f(self.t_inside_location, b.material.T_in)
+        glUniform1f(self.t_inside_location, b.material.temperature)
         glUniform1f(self.t_outside_location, b.material.T_out)
         glUniform1f(self.length_location, 10.0)
         glPushMatrix()
@@ -112,13 +118,35 @@ class BrickGeometry:
 class BrickMaterial:
     def __init__(self, color):
         self.color = color
-        self.T_out = 293.0
-        self.T_in = 293.0
+        self.temperature = 25
         self.r_th, self.r_cor = p.color_to_mat[color]
+        self.is_broken = False
+        self.N = 5
+        self.laplacien = np.zeros(self.N)
+        self.T = np.zeros(self.N)
 
-    def update(self, t_out, prev_rth):
-        diff = (t_out - self.T_in) * np.sqrt(self.r_th * prev_rth) * 0.1
-        self.T_in += diff
+    # noinspection PyUnreachableCode
+    def update(self, t_contact, prev_rth, temp: list = None):
+        r_th = 1 if self.is_broken else self.r_th
+        diff = (t_contact - self.temperature) * r_th * prev_rth * 1E-4
+        self.temperature += diff
+
+
+        return
+        # tentative d'eq de la chaleur ( 1D ), revoir les coefficients
+        x = np.linspace(0, 1, self.N)
+        dx = x[1] - x[0]
+        dx2 = dx ** 2
+
+        if temp is not None and temp[0] is not None and temp[1] is not None:
+            self.T[0] = temp[0].material.temperature
+            self.T[self.N - 1] = temp[1].material.temperature
+
+            for k in range(1, self.N - 1):
+                self.laplacien[k] = (self.T[k + 1] - 2 * self.T[k] + self.T[k - 1]) / dx2
+            for k in range(1, self.N - 1):
+                self.T[k] += 3E-5 * self.r_th * self.laplacien[k]
+            self.temperature = self.T[2]
 
 
 class BrickArray:
@@ -130,7 +158,7 @@ class BrickArray:
                 self.array[i][j] = Brick.get_brick(bricks, i, j)
 
     def get(self, i: int, j: int) -> Brick:
-        return self.array[i][j] if i < p.dim_grille[0] and j < p.dim_grille[1] else None
+        return self.array[i][j] if 0 <= i < p.dim_grille[0] and 0 <= j < p.dim_grille[1] else None
 
     def set(self, i: int, j: int, value: Brick or None) -> void:
         self.array[i][j] = value
@@ -158,7 +186,7 @@ class BrickArray:
         if heating:
             for brick in self.array[0]:
                 if brick is not None:
-                    brick.material.update(t_liquid, 1)
+                    brick.update(t_liquid, 1)
 
         # update heat for brick in contact to the liquid
         for column in self.array:
@@ -169,7 +197,7 @@ class BrickArray:
                         temp = self.get(x - 1, y), self.get(x + 1, y), self.get(x, y + 1), self.get(x, y - 1)
                         for b in temp:
                             if b is not None and b != brick:
-                                brick.material.update(b.material.T_in, b.material.r_th)
+                                brick.update(b.material.temperature, b.material.r_th, temp)
                         pass
 
             pass

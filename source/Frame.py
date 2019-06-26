@@ -11,7 +11,6 @@ from OpenGL.GL import *
 class Camera:
 
     def __init__(self, width: int, height: int) -> void:
-        # TODO detect the good camera instead of changing the number
         self.capture = cv2.VideoCapture(p.cam_number)
         self.capture.set(3, width)
         self.capture.set(4, height)
@@ -81,11 +80,16 @@ class Frame:
         """ Draw the frame with OpenGL as a texture in the entire screen"""
         glClearColor(1, 1, 1, 1)
         if type(image) != int:
-
             # draw background
             draw_rectangle(0, 0, p.width, p.height, 1, 1, 1)
 
-            # draw bricks
+            y0, x0 = p.cam_area[0]
+            yf, xf = p.cam_area[1]
+
+            if p.mode == 1:
+                draw_rectangle(x0, y0, xf-x0, yf-y0, 0, 0, 0)
+
+                # draw bricks
             ratio = (1 / 4, 1 / 4)
             self.draw_texture(0, 0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height)
             self.draw_texture(1, (1 - ratio[1]) * p.width, 0, ratio[0] * p.width, ratio[1] * p.height)
@@ -93,18 +97,15 @@ class Frame:
             if calibrate:
                 draw_rectangle_empty(0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height, 0, 0, 0, 5)
 
-            # draw grid
+            if p.mode == 0:
 
-            y0, x0 = p.cam_area[0]
-            yf, xf = p.cam_area[1]
-            if p.mode == 1:
-                draw_rectangle(x0, y0, xf-x0, yf-y0, 0, 0, 0)
-            step_i = int((xf - x0) / p.dim_grille[0])
-            step_j = int((yf - y0) / p.dim_grille[1])
-            for i in range(p.dim_grille[0]):
-                for j in range(p.dim_grille[1]):
-                    draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j,
-                                         0, 0, 0, 5 if calibrate else 0.2)
+                # draw grid
+                step_i = int((xf - x0) / p.dim_grille[0])
+                step_j = int((yf - y0) / p.dim_grille[1])
+                for i in range(p.dim_grille[0]):
+                    for j in range(p.dim_grille[1]):
+                        draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j,
+                                             0, 0, 0, 5 if calibrate else 0.2)
 
     def draw_ui(self) -> void:
         """ Draw user interface and decoration"""
@@ -118,8 +119,8 @@ class Frame:
         else:
             draw_rectangle(x0, yf, xf - x0, yf - y0, 0, 1, 0)
 
-        str = "START" if p.mode == 0 else "NEXT"
-        glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, str, 0, 0, 0, 1.0, 1)
+        message = "START" if p.mode == 0 else "NEXT"
+        glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, message, 0, 0, 0, 1.0, 1)
 
         # draw button interface (reset)
 
@@ -214,10 +215,10 @@ class Frame:
 
     def detect_hand(self) -> void:
         self.triggered_start, new = self.buttonStart.detect_hand(self.cam.image_raw)
-        if new:
-            if p.mode == 0:
-                p.mode = 1
-            elif p.mode == 1:
+        if p.mode == 0 and new:
+            p.mode = 1
+        elif p.mode == 1:
+            if new:
                 self.triggered_number += 1
 
         self.triggered_reset, new = self.buttonReset.detect_hand(self.cam.image_raw)
@@ -236,7 +237,7 @@ class Frame:
 
         # load shader
 
-        if self.triggered_start:
+        if self.triggered_start and self.triggered_number > 0:
             delta_t = clock() - self.shader_clock
             self.offset += delta_t * 0.01
             self.shader_clock = clock()
@@ -245,6 +246,7 @@ class Frame:
             # update offset from clock to scroll the texture
             glEnable(GL_TEXTURE_2D)
             self.tex_handler.use_texture(2)
+            glColor(r, g, b, 1)
             draw_textured_rectangle(x_s, y_s, w, h)
             glDisable(GL_TEXTURE_2D)
 
@@ -301,16 +303,19 @@ class Frame:
         step = int((xf - x0) / p.dim_grille[0])
         for index_c, t_l in enumerate(r_th):
             for index_l, t in enumerate(t_l):
-                b_xy = bricks.get(index_c, index_l)
-                t = b_xy.material.T_in / 1_600 if b_xy is not None else np.nan
-                if not np.isnan(t):
-                    draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
+                b_xy: Brick = bricks.get(index_c, index_l)
+                if b_xy is not None:
+                    if not b_xy.material.is_broken:
+                        t = b_xy.material.temperature / 1_500
+                        draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
+                    else:
+                        draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, .2, .1, .06)
                 else:
                     draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, 0, 0, 0)
 
                 if b_xy is not None:
                     glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
-                               GLUT_BITMAP_HELVETICA_12, "%0.0f" % (b_xy.material.T_in - 273), 1, 1, 1, 1.0, 1)
+                               GLUT_BITMAP_HELVETICA_12, "%0.0f" % b_xy.material.temperature, 1, 1, 1, 1.0, 1)
 
     def draw_texture(self, tex_loc: int, x: int, y: int, l: int, h: int) -> void:
         glEnable(GL_TEXTURE_2D)
@@ -376,10 +381,11 @@ class HandButton:
 
         # find contour with a large enough area
         for c in cv2.findContours(crop_gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]:
-            triggered = cv2.contourArea(c) > self.threshold
-            # print(cv2.contourArea(c))
+            triggered = self.threshold < cv2.contourArea(c) < 4800
+
             if triggered:
-                cv2.drawContours(crop, c, -1, (255, 0, 0), 3)
+                print(cv2.contourArea(c))
+                cv2.drawContours(crop, c, -1, (255, 0, 0), 1)
                 if self.tex_handler is not None:
                     self.tex_handler.bind_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
                 self.stay_triggered = True

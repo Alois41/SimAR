@@ -10,5 +10,5 @@ setup(
     version="1.0",
     description="",
     options={"build_exe": {"packages": ["OpenGL"], 'includes': additional_mods}},
-    executables=[Executable("main.py", base="Console")]
+    executables=[Executable("run.py", base="Console")]
 )

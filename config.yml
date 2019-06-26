@@ -12,8 +12,8 @@ camera:
 button:
   hand_area_1: [[326, 900], [376, 1000]]
   hand_area_2: [[326, 0], [376, 100]]
-  hand_threshold_1: 1_000 # pxl area
-  hand_threshold_2: 1_000 # pxl area
+  hand_threshold_1: 2_500 # pxl area
+  hand_threshold_2: 2_500 # pxl area
 
 
 brick:
@@ -36,15 +36,15 @@ color:
 color_mat:
   # name: [r_thermique, r_corrosion]
   "Black": [0, 0]
-  "Blue": [0, 0]
+  "Blue": [0.01, 0]
   "Yellow": [0.2, 0.1]
   "Magenta": [0.6, 0.078]
-  "Cyan": [0, 1]
+  "Cyan": [0.01, 1]
   "Orange": [0.1, 0.2]
   "Red": [0.6, 0]
   "Green": [0.01, 1]
 
 steel:
-  temperature: 1600 # K
+  temperature: 1500 # K
   cooling: False
   cooling_factor: 0.01 # K/s

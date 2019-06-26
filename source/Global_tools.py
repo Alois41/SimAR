@@ -74,7 +74,7 @@ class Param:
     nRange = 1.0
     f, brick_array = None, None
     frame, frame_hand = None, None
-    t_chamber = 293
+    t_chamber = 25
     t_ref = clock()
     hand_text = None
 
