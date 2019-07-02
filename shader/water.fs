@@ -1,3 +1,5 @@
+#version 150
+
 varying vec3 position;
 varying vec3 worldNormal;
 varying vec3 eyeNormal;

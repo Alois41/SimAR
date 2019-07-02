@@ -3,6 +3,7 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import yaml
+from docutils.nodes import section
 
 
 def get_file_content(file):
@@ -28,8 +29,8 @@ def glut_print(x, y, font, text, r, g, b, a, scale):
     glPopMatrix()
 
 
-class Param:
-    with open("config.yml", 'r') as file:
+class Config:
+    with open(os.path.abspath("./config.yml"), 'r') as file:
         cfg = yaml.load(file)
 
     # Var from config
@@ -58,6 +59,7 @@ class Param:
     section = cfg["program"]
     swap = section["swap"]
     swap_time = section["swap_time"]
+    test_model = section["test_model"]
 
     color_dict = cfg["color"]
     color_to_mat = cfg["color_mat"]
@@ -67,10 +69,11 @@ class Param:
     cooling = section["cooling"]
     cooling_factor = section["cooling_factor"]
 
-    # Global var
 
-    cam_area_width = cam_area[0][1] - cam_area[0][0]
-    cam_area_height = cam_area[1][1] - cam_area[1][0]
+class Globals:
+
+    cam_area_width = Config.cam_area[0][1] - Config.cam_area[0][0]
+    cam_area_height = Config.cam_area[1][1] - Config.cam_area[1][0]
     nRange = 1.0
     f, brick_array = None, None
     frame, frame_hand = None, None

@@ -1,17 +1,21 @@
-from brick import Brick
+from brick import Brick, BrickArray
 from time import clock
 from Global_tools import get_file_content
-from Global_tools import Param as p
+from Global_tools import Config as Conf, Globals as Glob
 from Global_tools import glut_print
 from image_tools import *
 from drawing import *
 from OpenGL.GL import *
+from datetime import timedelta
+from resources import Resources
+
+strings = Resources.strings['fr']
 
 
 class Camera:
 
     def __init__(self, width: int, height: int) -> void:
-        self.capture = cv2.VideoCapture(p.cam_number)
+        self.capture = cv2.VideoCapture(Conf.cam_number)
         self.capture.set(3, width)
         self.capture.set(4, height)
         _, self.image_raw = self.capture.read()
@@ -25,13 +29,13 @@ class Frame:
     """ Take and process webcam frames"""
 
     def __init__(self, width: int, height: int) -> void:
-        self.grid = np.empty(p.dim_grille)
-        self.grid[:] = np.nan
         self.width = width
         self.height = height
         self.cam = Camera(width, height)
 
-        self.shader_handler = ShaderHandler("./shader/LavaShader")
+        self.shader_handler_molten_steel = ShaderHandler("./shader/LavaShader", ["myTexture", "Time"])
+        self.shader_handler_brick = ShaderHandler("./shader/TemperatureShader",
+                                                  ["Corrosion", "T"])
 
         self.old_hand_zone = None
         self.triggered_start, self.triggered_reset = False, False
@@ -49,14 +53,14 @@ class Frame:
 
         self.tex_handler = TextureHandler()
 
-        self.buttonStart = HandButton(3, self.tex_handler, p.hand_area_1, p.hand_threshold_1)
-        self.buttonReset = HandButton(3, None, p.hand_area_2, p.hand_threshold_2)
+        self.buttonStart = HandButton(3, self.tex_handler, Conf.hand_area_1, Conf.hand_threshold_1)
+        self.buttonReset = HandButton(3, None, Conf.hand_area_2, Conf.hand_threshold_2)
 
     def update_bricks(self, calibration: bool = False) -> (np.ndarray, list):
         """ Process the current raw frame and return a texture to draw and the  detected bricks"""
 
         image_raw = cv2.cvtColor(self.cam.image_raw, cv2.COLOR_BGR2RGBA)  # convert to RGBA
-        image = adjust_gamma(image_raw.copy(), 1 if calibration else 2)  # enhance gamma of the image
+        image = adjust_gamma(image_raw.copy(), 1 if calibration else 1.2)  # enhance gamma of the image
 
         contours, image = find_center_contours(image)  # find contours in the center of the image
 
@@ -64,106 +68,120 @@ class Frame:
             return image, []
 
         bricks = self.isolate_bricks(contours, image)  # detect bricks
-
+        image[:, :, 3] = 255*np.ones((image.shape[0], image.shape[1]))
         self.tex_handler.bind_update_texture(0, cv2.flip(image, 0), self.width, self.height)
 
         return image, bricks
 
     def render(self) -> void:
-        if p.frame is not None:
-            self.draw_frame(p.frame)
+        if Glob.frame is not None:
+            self.draw_frame(Glob.frame)
             self.draw_ui()
 
-            self.draw_lava(p.width / 10, 0, 1.4 * p.width / 10, 2.2 * p.height / 3, 1, 0.250, 0.058)
+            self.draw_molten_steel(Conf.width / 10, 0, 1.4 * Conf.width / 10, 2.2 * Conf.height / 3, 1, 1, 1)
 
     def draw_frame(self, image: np.ndarray, calibrate: bool = False) -> void:
         """ Draw the frame with OpenGL as a texture in the entire screen"""
         glClearColor(1, 1, 1, 1)
         if type(image) != int:
             # draw background
-            draw_rectangle(0, 0, p.width, p.height, 1, 1, 1)
+            draw_rectangle(0, 0, Conf.width, Conf.height, 1, 1, 1)
 
-            y0, x0 = p.cam_area[0]
-            yf, xf = p.cam_area[1]
+            y0, x0 = Conf.cam_area[0]
+            yf, xf = Conf.cam_area[1]
 
-            if p.mode == 1:
-                draw_rectangle(x0, y0, xf-x0, yf-y0, 0, 0, 0)
+            if Glob.mode == 1:
+                draw_rectangle(x0, y0, xf - x0, yf - y0, 0, 0, 0)
 
                 # draw bricks
             ratio = (1 / 4, 1 / 4)
-            self.draw_texture(0, 0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height)
-            self.draw_texture(1, (1 - ratio[1]) * p.width, 0, ratio[0] * p.width, ratio[1] * p.height)
+            # hand image
+
+            y0, x0 = Conf.hand_area_1[0]
+            yf, xf = Conf.hand_area_1[1]
+            self.draw_texture(1, Conf.width - (xf - x0), 0, xf - x0, yf - y0)
 
             if calibrate:
-                draw_rectangle_empty(0, (1 - ratio[1]) * p.height, ratio[0] * p.width, ratio[1] * p.height, 0, 0, 0, 5)
+                draw_rectangle_empty(0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height, 0,
+                                     0, 0, 5)
 
-            if p.mode == 0:
+            y0, x0 = Conf.cam_area[0]
+            yf, xf = Conf.cam_area[1]
 
+            if Glob.mode == 0:
+                # brick map
+                self.draw_texture(0, 0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height)
                 # draw grid
-                step_i = int((xf - x0) / p.dim_grille[0])
-                step_j = int((yf - y0) / p.dim_grille[1])
-                for i in range(p.dim_grille[0]):
-                    for j in range(p.dim_grille[1]):
+                step_i = int((xf - x0) / Conf.dim_grille[0])
+                step_j = int((yf - y0) / Conf.dim_grille[1])
+                for i in range(Conf.dim_grille[0]):
+                    for j in range(Conf.dim_grille[1]):
                         draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j,
-                                             0, 0, 0, 5 if calibrate else 0.2)
+                                             0, 0, 0, 5 if calibrate else 2)
 
     def draw_ui(self) -> void:
         """ Draw user interface and decoration"""
 
         # draw button interface (start)
 
-        y0, x0 = p.hand_area_1[0]
-        yf, xf = p.hand_area_1[1]
+        y0, x0 = Conf.hand_area_1[0]
+        yf, xf = Conf.hand_area_1[1]
         if not self.triggered_start:
             draw_rectangle(x0, yf, xf - x0, yf - y0, 0.4, 0.4, 0.4)
         else:
             draw_rectangle(x0, yf, xf - x0, yf - y0, 0, 1, 0)
 
-        message = "START" if p.mode == 0 else "NEXT"
+        message = "  PRET" if Glob.mode == 0 else "CONTINUER"
         glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, message, 0, 0, 0, 1.0, 1)
 
         # draw button interface (reset)
 
-        y0, x0 = p.hand_area_2[0]
-        yf, xf = p.hand_area_2[1]
+        y0, x0 = Conf.hand_area_2[0]
+        yf, xf = Conf.hand_area_2[1]
         if not self.triggered_reset:
             draw_rectangle(x0, yf, xf - x0, yf - y0, 0.4, 0.4, 0.4)
         else:
             draw_rectangle(x0, yf, xf - x0, yf - y0, 0, 1, 0)
 
-        glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, "RESET", 0, 0, 0, 1.0, 1)
+        glut_print(x0, yf + 0.5 * (yf - y0), GLUT_BITMAP_HELVETICA_18, "  RETOUR", 0, 0, 0, 1.0, 1)
 
         # draw board informations
 
-        x_start = 2.5 * p.width / 10
+        x_start = 2.5 * Conf.width / 10
 
-        if 0 <= clock() % (3 * p.swap_time) <= p.swap_time or not p.swap:
-            self.draw_temperatures(x_start, 0, p.brick_array)
-            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Temperatures", 0.0, 0.0, 0.0, 1.0, 1)
+        if 0 <= clock() % (3 * Conf.swap_time) <= Conf.swap_time or not Conf.swap or Glob.mode == 1:
+            self.draw_temperatures(x_start, 0, Glob.brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18,
+                       "Temperatures %s" % str(timedelta(seconds=Glob.brick_array.sim_time)), 0.0, 0.0, 0.0, 1.0, 1)
 
-        elif p.swap_time <= clock() % (3 * p.swap_time) <= 2 * p.swap_time:
-            self.draw_resistance_th(x_start, 0, p.brick_array)
-            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances thermiques", 0.0, 0.0, 0.0, 1.0, 1)
+        elif Conf.swap_time <= clock() % (3 * Conf.swap_time) <= 2 * Conf.swap_time:
+            self.draw_thermal_diffusivity(x_start, 0, Glob.brick_array)
+            glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Diffusivité thermique", 0.0, 0.0, 0.0, 1.0, 1)
 
         else:
-            self.draw_resistance_corr(x_start, 0, p.brick_array)
+            self.draw_resistance_corr(x_start, 0, Glob.brick_array)
             glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances à la corrosion", 0.0, 0.0, 0.0, 1.0, 1)
             pass
 
-        str = "Nombre de coulées : %i" % p.f.triggered_number if p.mode == 1 else "Construction"
-        glut_print(x_start, p.height - 30, GLUT_BITMAP_HELVETICA_18, str, 0.0, 0.0, 0.0, 1.0, 20)
+        if Glob.mode == 0:
+            title = strings['title_build']
+            subtitle = strings['sub_title_build']
+        else:
+            title = strings['title_test']
+            subtitle = strings['sub_title_test1i'] % self.triggered_number
+
+        glut_print(x_start, Conf.height - 30, GLUT_BITMAP_HELVETICA_18, title, 0.0, 0.0, 0.0, 1.0, 20)
+        glut_print(x_start, Conf.height - 60, GLUT_BITMAP_HELVETICA_18, subtitle, 0.0, 0.0, 0.0, 1.0, 20)
 
     def isolate_bricks(self, contours: list, image: np.ndarray) -> list:
         """ create bricks from contours"""
-        self.grid = np.empty(p.dim_grille)
-        self.grid[:] = np.nan
         bricks = []
 
         # loop over the contours
         for index, c in enumerate(contours):
             # filter with Area
             area = cv2.contourArea(c)
-            if area > p.max_brick_size or area < p.min_brick_size:
+            if area > Conf.max_brick_size or area < Conf.min_brick_size:
                 continue
 
             # compute the center of the contour
@@ -181,11 +199,11 @@ class Frame:
 
             # Create a mask with the rectangle
             mask = np.zeros(image.shape[:2], np.uint8)
-            cv2.drawContours(mask, [box], -1, (255, 255, 255), -1)
+            cv2.drawContours(mask, [box], -1, (255, 255, 255, 255), -1)
 
             # Shrink the mask to make sure that we are only inside the rectangle
-            kernel = np.ones((10, 10), np.uint8)
-            mask = cv2.erode(mask, kernel, iterations=4)
+            # kernel = np.ones((10, 10), np.uint8)
+            # mask = cv2.erode(mask, kernel, iterations=4)
 
             # convert image in Hue Lightness Saturation space, better for taking mean color.
             image_hls = cv2.cvtColor(image.copy(), cv2.COLOR_RGB2HLS)
@@ -193,17 +211,17 @@ class Frame:
             mean = 2 * cv2.mean(image_hls, mask=mask)[0]
 
             # Compare it to the colors dict and find the closest one
-            colors = list(p.color_dict.keys())
+            colors = list(Conf.color_dict.keys())
             closest_colors = sorted(colors, key=lambda color: np.abs(color - mean))
             closest_color = closest_colors[0]
-            name_color = p.color_dict[closest_color]
+            name_color = Conf.color_dict[closest_color]
 
             # draw a bright color with the same hue
-            c_rgb = tuple(cv2.cvtColor(np.uint8([[[0.5 * closest_color, 128, 255]]]), cv2.COLOR_HLS2RGB)[0][0])
+            c_rgb = cv2.cvtColor(np.uint8([[[0.5 * closest_color, 128, 255]]]), cv2.COLOR_HLS2RGB)[0][0]
             cv2.drawContours(image, [box], 0, tuple([int(x) for x in c_rgb]), thickness=cv2.FILLED)
 
             # create a brick and add it to the array
-            b = Brick(rect, name_color, self.grid)
+            b = Brick(rect, name_color)
             cv2.putText(image, "%0.1f" % mean, (c_x - 20, c_y - 20), cv2.FONT_HERSHEY_SIMPLEX,
                         1.5, (0, 0, 0), thickness=10, lineType=10)
             cv2.putText(image, "%i%i" % (tuple(b.indexes[0])), (c_x - 20, c_y + 40), cv2.FONT_HERSHEY_SIMPLEX,
@@ -215,20 +233,24 @@ class Frame:
 
     def detect_hand(self) -> void:
         self.triggered_start, new = self.buttonStart.detect_hand(self.cam.image_raw)
-        if p.mode == 0 and new:
-            p.mode = 1
-        elif p.mode == 1:
+        if Glob.mode == 0 and new:
+            if Glob.brick_array.is_valid():
+                Glob.brick_array.init_heat_eq()
+                Glob.mode = 1
+            else:
+                strings['sub_title_build'] = "La grille n'est pas remplie"
+        elif Glob.mode == 1:
             if new:
                 self.triggered_number += 1
 
         self.triggered_reset, new = self.buttonReset.detect_hand(self.cam.image_raw)
         if self.triggered_reset:
             self.triggered_number = 0
-            p.brick_array.reset()  # temperature reset
-            p.mode = 0
+            Glob.brick_array.reset()  # temperature reset
+            Glob.mode = 0
 
-    def draw_lava(self, x_s: int, y_s: int, w: int, h: int, r: float, g: float, b: float) -> void:
-        """ draw "lava" from a texture"""
+    def draw_molten_steel(self, x_s: int, y_s: int, w: int, h: int, r: float, g: float, b: float) -> void:
+        """ draw "molten_steel" from a texture"""
 
         draw_rectangle(x_s, y_s - 20, w, h, 0.3, 0.3, 0.3)
         draw_rectangle(x_s - 10, y_s - 20, 10, h, 0.1, 0.1, 0.1)
@@ -242,7 +264,7 @@ class Frame:
             self.offset += delta_t * 0.01
             self.shader_clock = clock()
 
-            self.shader_handler.bind(data=self.offset)
+            self.shader_handler_molten_steel.bind(data=[None, self.offset])
             # update offset from clock to scroll the texture
             glEnable(GL_TEXTURE_2D)
             self.tex_handler.use_texture(2)
@@ -250,7 +272,7 @@ class Frame:
             draw_textured_rectangle(x_s, y_s, w, h)
             glDisable(GL_TEXTURE_2D)
 
-            self.shader_handler.unbind()
+            self.shader_handler_molten_steel.unbind()
 
         draw_rectangle(x_s, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
         draw_rectangle(x_s + .5 * w + 20, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
@@ -260,62 +282,76 @@ class Frame:
         draw_rectangle(x_s, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
         draw_rectangle(x_s + .5 * w + 20, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
 
-    def draw_resistance_th(self, x_s: int, y_s: int, bricks) -> void:
-        r_th = 255 * self.grid[:, :, 0]
-        y0, x0 = p.cam_area[0]
-        yf, xf = p.cam_area[1]
-        step = int((xf - x0) / p.dim_grille[0])
-        for index_c, t_l in enumerate(r_th):
-            for index_l, t in enumerate(t_l):
-                b_xy = bricks.get(index_c, index_l)
-                t = b_xy.material.r_th if b_xy is not None else np.nan
+    def draw_thermal_diffusivity(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
+        y0, x0 = Conf.cam_area[0]
+        yf, xf = Conf.cam_area[1]
+        step = int((xf - x0) / Conf.dim_grille[0])
+        for c in range(Conf.dim_grille[0]):
+            for l in range(Conf.dim_grille[1]):
+                b_xy = bricks.get(c, l)
+                t = b_xy.material.diffusivity if b_xy is not None else np.nan
                 if not np.isnan(t):
-                    draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
+                    draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, t*1E5, 0, 1 - t*1E5)
                 else:
-                    draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, 0, 0, 0)
+                    draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, 0, 0, 0)
 
                 if b_xy is not None:
-                    glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
-                               GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_th), 1, 1, 1, 1.0, 1)
+                    glut_print(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20 + 5,
+                               GLUT_BITMAP_HELVETICA_12, "%0.2E" % t, 1, 1, 1, 1.0, 1)
 
     def draw_resistance_corr(self, x_s: int, y_s: int, bricks) -> void:
-        r_corr = 255 * self.grid[:, :, 1]
-        y0, x0 = p.cam_area[0]
-        yf, xf = p.cam_area[1]
-        step = int((xf - x0) / p.dim_grille[0])
-        for index_c, t_l in enumerate(r_corr):
-            for index_l, t in enumerate(t_l):
-                b_xy = bricks.get(index_c, index_l)
+        y0, x0 = Conf.cam_area[0]
+        yf, xf = Conf.cam_area[1]
+        step = int((xf - x0) / Conf.dim_grille[0])
+        for c in range(Conf.dim_grille[0]):
+            for l in range(Conf.dim_grille[1]):
+                b_xy = bricks.get(c, l)
                 t = b_xy.material.r_cor if b_xy is not None else np.nan
                 if not np.isnan(t):
-                    draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
+                    draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, t, 0, 1 - t)
                 else:
-                    draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, 0, 0, 0)
+                    draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, 0, 0, 0)
 
                 if b_xy is not None:
-                    glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
+                    glut_print(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.0f%%" % (100.0 * b_xy.material.r_cor), 1, 1, 1, 1.0, 1)
 
     def draw_temperatures(self, x_s: int, y_s: int, bricks) -> void:
-        r_th = 255 * self.grid[:, :, 0]
-        y0, x0 = p.cam_area[0]
-        yf, xf = p.cam_area[1]
-        step = int((xf - x0) / p.dim_grille[0])
-        for index_c, t_l in enumerate(r_th):
-            for index_l, t in enumerate(t_l):
-                b_xy: Brick = bricks.get(index_c, index_l)
-                if b_xy is not None:
-                    if not b_xy.material.is_broken:
-                        t = b_xy.material.temperature / 1_500
-                        draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, t, 0, 1 - t)
-                    else:
-                        draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, .2, .1, .06)
-                else:
-                    draw_rectangle(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20, step, 20, 0, 0, 0)
+        for i in range(2):
+            y0, x0 = Conf.cam_area[0]
+            yf, xf = Conf.cam_area[1]
+            h = 20
 
-                if b_xy is not None:
-                    glut_print(x_s + index_c * step, y_s + (len(t_l) - index_l) * 20 + 5,
-                               GLUT_BITMAP_HELVETICA_12, "%0.0f" % b_xy.material.temperature, 1, 1, 1, 1.0, 1)
+            if i == 1 and Glob.mode == 1:
+                w, h = xf-x0, (yf-y0) / Conf.dim_grille[1]
+                x_s, y_s = x0, y0 - h
+
+            if self.triggered_start and self.triggered_number > 0:
+                delta_t = clock() - self.shader_clock
+                self.offset += delta_t * 0.01
+                self.shader_clock = clock()
+                self.shader_handler_molten_steel.bind(data=[None, self.offset])
+                # update offset from clock to scroll the texture
+                glEnable(GL_TEXTURE_2D)
+                self.tex_handler.use_texture(2)
+                draw_textured_rectangle(x_s, y_s + 3*h, (xf - x0), 2*h)
+                glDisable(GL_TEXTURE_2D)
+                self.shader_handler_molten_steel.unbind()
+
+            step = int((xf - x0) / Conf.dim_grille[0])
+            for index_c in range(Conf.dim_grille[0]):
+                for index_l in range(Conf.dim_grille[1]):
+                    b_xy: Brick = bricks.get(index_c, index_l)
+                    if b_xy is not None:
+                        self.shader_handler_brick.bind([b_xy.material.health, b_xy.material.T])
+                        draw_rectangle(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h, step, h)
+                        self.shader_handler_brick.unbind()
+                    else:
+                        draw_rectangle(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h, step, h, 0, 0, 0)
+
+                    if b_xy is not None:
+                        glut_print(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h + 5,
+                                   GLUT_BITMAP_HELVETICA_12, "%0.0f" % np.mean(b_xy.material.T), 1, 1, 1, 1.0, 1)
 
     def draw_texture(self, tex_loc: int, x: int, y: int, l: int, h: int) -> void:
         glEnable(GL_TEXTURE_2D)
@@ -327,6 +363,7 @@ class Frame:
 class HandButton:
 
     def __init__(self, wait_time: float, texture_handler, hand_area: list, threshold: int) -> void:
+        """ Init of one button """
         self.stay_triggered = False
         self.trigger_cooldown = False
         self.wait_time = wait_time
@@ -364,6 +401,7 @@ class HandButton:
 
         # crop to the button zone
         crop = cv2.cvtColor(crop_zone(image, x0, y0, xf - x0, yf - y0), cv2.COLOR_BGR2RGBA)
+        crop[:, :, 3] = 255.0 * np.ones((crop.shape[0], crop.shape[1]))
 
         # Luminance analysis is enough
         crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
@@ -375,38 +413,37 @@ class HandButton:
         crop_gray = cv2.dilate(crop_gray, kernel, 10)
 
         # help to close contours
-        crop_gray[-1:, :] = 255
-        crop_gray[:, :1] = 255
-        crop_gray[:, -1:] = 255
+        crop_gray[int(0.5 * (yf - y0)), :] = 255
+        np.fill_diagonal(crop_gray, 255)
 
         # find contour with a large enough area
-        for c in cv2.findContours(crop_gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]:
+        for c in cv2.findContours(crop_gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[1]:
             triggered = self.threshold < cv2.contourArea(c) < 4800
 
             if triggered:
                 print(cv2.contourArea(c))
-                cv2.drawContours(crop, c, -1, (255, 0, 0), 1)
+                cv2.drawContours(crop, c, -1, (255, 0, 0, 255), 1)
                 if self.tex_handler is not None:
-                    self.tex_handler.bind_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
+                    self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
                 self.stay_triggered = True
                 self.wait_time = clock()
                 return True, True
 
         if self.tex_handler is not None:
             crop = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGBA)
-            self.tex_handler.bind_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
+            self.tex_handler.bind_update_texture(1, cv2.flip(crop, 0), xf - x0, yf - y0)
         return False, False
 
 
 class TextureHandler:
-    def __init__(self):
-        # load texture
+    def __init__(self) -> void:
+        """ load fixed textures and prepare all textures location in OPENGL"""
         self.texture_array = glGenTextures(3)
-        lava_texture = cv2.imread("./texture/lava_diff.png")
-        im = cv2.cvtColor(lava_texture, cv2.COLOR_BGR2RGBA)
+        molten_steel_texture = cv2.imread("./texture/molten_steel_diff.png")
+        im = cv2.cvtColor(molten_steel_texture, cv2.COLOR_BGR2RGBA)
 
-        self.bind_texture(0, None, p.width, p.height)
-        self.bind_texture(1, None, p.width, p.height)
+        self.bind_texture(0, None, Conf.width, Conf.height)
+        self.bind_texture(1, None, Conf.width, Conf.height)
         self.bind_texture(2, im, im.shape[0], im.shape[1])
 
     def bind_texture(self, index: int, texture: np.ndarray or None, width: int, height: int) -> void:
@@ -427,25 +464,37 @@ class TextureHandler:
                         GL_RGBA, GL_UNSIGNED_BYTE, texture)
 
     def use_texture(self, index):
+        """ just bind texture for next draw"""
         glBindTexture(GL_TEXTURE_2D, self.texture_array[index])
 
 
 class ShaderHandler:
 
-    def __init__(self, path: str) -> void:
+    def __init__(self, path: str, data_names: list) -> void:
+        """ Load a given vertex and fragment shader from files """
         f_shader = compileShader(get_file_content(path + ".fs"), GL_FRAGMENT_SHADER)
         v_shader = compileShader(get_file_content(path + ".vs"), GL_VERTEX_SHADER)
         self.shaderProgram = glCreateProgram()
         glAttachShader(self.shaderProgram, v_shader)
         glAttachShader(self.shaderProgram, f_shader)
         glLinkProgram(self.shaderProgram)
-        self.texture_location = glGetUniformLocation(self.shaderProgram, "myTexture")
-        self.time_location = glGetUniformLocation(self.shaderProgram, "Time")
+        self.data_location = []
+        for name in data_names:
+            self.data_location.append(glGetUniformLocation(self.shaderProgram, name))
 
-    def bind(self, data: any) -> void:
+    def bind(self, data: list) -> void:
+        """ bind the shader and send data to it """
         glUseProgram(self.shaderProgram)
-        glUniform1f(self.time_location, data)
+        self.update(data)
+
+    def update(self, data: list) -> void:
+        if len(data) != len(self.data_location):
+            raise IndexError("Not enough data")
+        for i in range(len(data)):
+            if data[i] is not None:
+                glUniform1fv(self.data_location[i], np.size(data[i], None), np.array(data[i]).flatten())
 
     @staticmethod
     def unbind() -> void:
+        """ unbind shader, no shader will be used after that"""
         glUseProgram(0)

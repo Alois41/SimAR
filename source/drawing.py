@@ -3,7 +3,7 @@ from OpenGL.GL.shaders import *
 from OpenGL.GLUT import *
 
 
-def draw_rectangle(x_s, y_s, w, h, r, g, b):
+def draw_rectangle(x_s, y_s, w, h, r=1, g=1, b=1):
     glPushMatrix()
     glColor3f(r, g, b)
     glTranslatef(x_s, y_s, 0)

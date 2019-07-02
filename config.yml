@@ -7,22 +7,23 @@ grid:
 
 camera:
   cam_area: [[192,256], [576,768]]
-  cam_number: 1
+  cam_number: 0
 
 button:
   hand_area_1: [[326, 900], [376, 1000]]
   hand_area_2: [[326, 0], [376, 100]]
-  hand_threshold_1: 2_500 # pxl area
+  hand_threshold_1: 1_500 # pxl area
   hand_threshold_2: 2_500 # pxl area
 
 
 brick:
-  min_brick_size: 2_000.0 # pxl area
+  min_brick_size: 1_500.0 # pxl area
   max_brick_size: 20_000.0 # pxl area
 
 program:
-  swap: False # swap between display panels
+  swap: True # swap between display panels
   swap_time: 3
+  test_model: True
 
 color:
   # hue: name
@@ -31,18 +32,19 @@ color:
   190: "Cyan"
   35: "Orange"
   0: "Red"
-  80: "Green"
+  75: "Green"
 
 color_mat:
-  # name: [r_thermique, r_corrosion]
-  "Black": [0, 0]
-  "Blue": [0.01, 0]
-  "Yellow": [0.2, 0.1]
-  "Magenta": [0.6, 0.078]
-  "Cyan": [0.01, 1]
-  "Orange": [0.1, 0.2]
-  "Red": [0.6, 0]
-  "Green": [0.01, 1]
+  # name: [conductivity, capacity, density, r_corrosion]
+  #        W/(m*K),      J/(kg/K), kg/m^3
+  "Black":   [0.12, 2000, 600, .0]
+  "Blue":    [0.12, 2000, 600, .2]
+  "Yellow":  [0.12, 2000, 600, .5]
+  "Magenta": [20.0, 500, 2600, .9]
+  "Cyan":    [0.12, 2000, 600, .2]
+  "Orange":  [0.12, 2000, 600, .9]
+  "Red":     [0.12, 2000, 600, .9]
+  "Green":   [5.00, 2000, 600, .9]
 
 steel:
   temperature: 1500 # K

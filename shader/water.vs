@@ -1,3 +1,5 @@
+#version 150
+
 const float pi = 3.14159;
 uniform float waterHeight;
 uniform float time;

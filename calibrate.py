@@ -3,7 +3,7 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from Frame import Frame
 from OpenGL.GLU import *
-from Global_tools import Param as P
+from Global_tools import Config as P
 
 
 def init():

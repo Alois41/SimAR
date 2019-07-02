@@ -1,6 +1,8 @@
+#version 140
+
 uniform sampler2D myTexture;
 
-varying vec2 vTexCoord;
+varying vec4 vTexCoord;
 
 uniform float Time;
 

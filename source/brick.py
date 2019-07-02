@@ -2,20 +2,21 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GL.shaders import *
 import numpy as np
-from Global_tools import get_file_content, Param as p
+from Global_tools import get_file_content, Config as Conf
+from heatEquation import HeatEquation
 
 
 class Brick:
 
-    def __init__(self, box, color, grid):
+    def __init__(self, box, color):
         self.geometry = BrickGeometry(box)
         self.indexes = self.geometry.compute_indexes()
         self.material = BrickMaterial(color)
         self.is_invalid = False
 
-        for index in self.indexes:
-            grid[int(min(p.dim_grille[0], index[0])), int(min(p.dim_grille[1], index[1]))] = \
-                (self.material.r_th, self.material.r_cor)
+        # for index in self.indexes:
+        #     grid[int(min(Conf.dim_grille[0], index[0])), int(min(Conf.dim_grille[1], index[1]))] = \
+        #         (self.material.r_th, self.material.r_cor)
 
     @staticmethod
     def get_brick(brick_array, i, j, prev_brick=None):
@@ -28,57 +29,15 @@ class Brick:
     def is_almost(self, b):
         return self.geometry.compare(b.geometry) and self.material.color == b.material.color
 
-    def replace(self, brick, grid):
+    def replace(self, brick):
         self.is_invalid = False
         self.material.is_broken = False
 
     def invalidate(self):
         self.is_invalid = True
 
-    def update(self, t_contact, prev_r_th, temp: list = None) -> void:
-        self.material.update(t_contact, t_contact, temp)
-        if self.material.temperature > 500:
-            self.material.is_broken = True
-
-
-class BrickRenderer:
-    def __init__(self):
-        f_shader = compileShader(get_file_content("./shader/TemperatureShader.fs"), GL_FRAGMENT_SHADER)
-        v_shader = compileShader(get_file_content("./shader/TemperatureShader.vs"), GL_VERTEX_SHADER)
-        self.shaderProgram = glCreateProgram()
-        glAttachShader(self.shaderProgram, v_shader)
-        glAttachShader(self.shaderProgram, f_shader)
-        glLinkProgram(self.shaderProgram)
-        self.t_inside_location = glGetUniformLocation(self.shaderProgram, "Tinside")
-        self.t_outside_location = glGetUniformLocation(self.shaderProgram, "Toutside")
-        self.length_location = glGetUniformLocation(self.shaderProgram, "lenght")
-
-    def render(self, b: Brick) -> void:
-        # Draw in bottom-left
-        x, y = 0.2 * b.geometry.xStart, 0.2 * (p.height - b.geometry.yStart)
-        l, w = 0.2 * b.geometry.length, 0.2 * b.geometry.width
-        angle = -b.geometry.angle
-
-        glUseProgram(self.shaderProgram)
-        glUniform1f(self.t_inside_location, b.material.temperature)
-        glUniform1f(self.t_outside_location, b.material.T_out)
-        glUniform1f(self.length_location, 10.0)
-        glPushMatrix()
-
-        glTranslatef(x, y, 0)
-        glRotatef(angle, 0, 0, 1)
-        glTranslatef(-.5 * l, -.5 * w, 0)
-        glScalef(l, w, 1)
-
-        glBegin(GL_QUADS)  # start drawing a rectangle
-        glVertex2f(0, 0)  # bottom left point
-        glVertex2f(1, 0)  # bottom right point
-        glVertex2f(1, 1)  # top right point
-        glVertex2f(0, 1)  # top left point
-        glEnd()
-        glPopMatrix()
-        glutSwapBuffers()
-        glUseProgram(0)
+    def update_corrosion(self) -> void:
+        self.material.update_corrosion()
 
 
 class BrickGeometry:
@@ -95,15 +54,15 @@ class BrickGeometry:
 
     def compute_indexes(self):
         indexes = []
-        x_index = int((self.xStart / (p.width / p.dim_grille[0])))
-        y_index = int((self.yStart / (p.height / p.dim_grille[1])))
+        x_index = int((self.xStart / (Conf.width / Conf.dim_grille[0])))
+        y_index = int((self.yStart / (Conf.height / Conf.dim_grille[1])))
         indexes.append([x_index, y_index])
 
-        if self.length > 1.2 * (p.width / p.dim_grille[0]) and x_index < p.dim_grille[0] - 1:
+        if self.length > 1.2 * (Conf.width / Conf.dim_grille[0]) and x_index < Conf.dim_grille[0] - 1:
             # print("%i%i grande longueur %0.2f" % (x_index, y_index, self.angle))
             indexes.append([x_index + 1, y_index])
 
-        if self.width > 1.2 * (p.height / p.dim_grille[1]) and y_index < p.dim_grille[1] - 1:
+        if self.width > 1.2 * (Conf.height / Conf.dim_grille[1]) and y_index < Conf.dim_grille[1] - 1:
             indexes.append([x_index, y_index + 1])
             # print("%i%i grande largeur %0.2f" % (x_index, y_index, self.angle))
 
@@ -118,53 +77,43 @@ class BrickGeometry:
 class BrickMaterial:
     def __init__(self, color):
         self.color = color
-        self.temperature = 25
-        self.r_th, self.r_cor = p.color_to_mat[color]
+        self.conductivity, self.capacity, self.density, self.r_cor = Conf.color_to_mat[color]
         self.is_broken = False
-        self.N = 5
-        self.laplacien = np.zeros(self.N)
-        self.T = np.zeros(self.N)
+        self.health = 1.0
+        self.T = [0]  # °C
 
-    # noinspection PyUnreachableCode
-    def update(self, t_contact, prev_rth, temp: list = None):
-        r_th = 1 if self.is_broken else self.r_th
-        diff = (t_contact - self.temperature) * r_th * prev_rth * 1E-4
-        self.temperature += diff
+    def update_corrosion(self):
+        self.health = max(0.0, self.health - 0.01 * (1.0 - self.r_cor))
 
-
-        return
-        # tentative d'eq de la chaleur ( 1D ), revoir les coefficients
-        x = np.linspace(0, 1, self.N)
-        dx = x[1] - x[0]
-        dx2 = dx ** 2
-
-        if temp is not None and temp[0] is not None and temp[1] is not None:
-            self.T[0] = temp[0].material.temperature
-            self.T[self.N - 1] = temp[1].material.temperature
-
-            for k in range(1, self.N - 1):
-                self.laplacien[k] = (self.T[k + 1] - 2 * self.T[k] + self.T[k - 1]) / dx2
-            for k in range(1, self.N - 1):
-                self.T[k] += 3E-5 * self.r_th * self.laplacien[k]
-            self.temperature = self.T[2]
+    @property
+    def diffusivity(self):
+        return self.conductivity / (self.capacity * self.density)
 
 
 class BrickArray:
     def __init__(self, bricks):
-        self.array = np.array([[None] * p.dim_grille[1]] * p.dim_grille[0])
-        self.update_array = np.array([[0] * p.dim_grille[1]] * p.dim_grille[0])
-        for i in range(p.dim_grille[0]):
-            for j in range(p.dim_grille[1]):
+        self.array = np.array([[None] * Conf.dim_grille[1]] * Conf.dim_grille[0])
+        for i in range(Conf.dim_grille[0]):
+            for j in range(Conf.dim_grille[1]):
                 self.array[i][j] = Brick.get_brick(bricks, i, j)
 
+        self.w = .7  # m
+        self.h = .4  # m
+        self.dx = 0.01  # m / points
+        self.dy = 0.01  # m / points
+        self.nx, self.ny = int(np.ceil(self.w / self.dx)), int(np.ceil(self.h / self.dy))  # points
+        self.T = 25.0 * np.ones((self.ny, self.nx))  # °C
+        self.sim_time = 0  # s
+        self.heq = None
+
     def get(self, i: int, j: int) -> Brick:
-        return self.array[i][j] if 0 <= i < p.dim_grille[0] and 0 <= j < p.dim_grille[1] else None
+        return self.array[i][j] if 0 <= i < Conf.dim_grille[0] and 0 <= j < Conf.dim_grille[1] else None
 
     def set(self, i: int, j: int, value: Brick or None) -> void:
         self.array[i][j] = value
 
     def clear(self) -> void:
-        self.array = np.array([[None] * p.dim_grille[1]] * p.dim_grille[0])
+        self.array = np.array([[None] * Conf.dim_grille[1]] * Conf.dim_grille[0])
 
     def invalidate(self) -> void:
         for column in self.array:
@@ -180,30 +129,74 @@ class BrickArray:
                         print("Brick removed: " + str(index) + brick.material.color)
                         self.set(index[0], index[1], None)
 
-    def update(self, t_liquid, heating = True) -> void:
+    def init_heat_eq(self):
+
+        _conductivity = np.ones((self.ny, self.nx))
+        _density = 500 * np.ones((self.ny, self.nx))
+        _capacity = 500 * np.ones((self.ny, self.nx))
+        for i in range(self.nx):
+            for j in range(self.ny):
+                index_i = i / (self.nx / Conf.dim_grille[0])
+                index_j = j / (self.ny / Conf.dim_grille[1])
+                material = self.get(int(index_i), int(index_j)).material
+                _conductivity[j, i] = material.conductivity
+                _capacity[j, i] = material.capacity
+                _density[j, i] = material.density
+        self.heq: HeatEquation = HeatEquation(self.T, self.dx, _density, _conductivity, _capacity)
+
+    def update(self, heating=True) -> void:
+        if self.heq is not None:
+            if heating:
+                self.heq.temperature[:, 0] = 1500
+            self.heq.evolve_ts()
+            self.sim_time += self.heq.dt
+
+            for i in range(Conf.dim_grille[0]):
+                for j in range(Conf.dim_grille[1]):
+                    self.get(i, j).material.T = np.flipud(
+                        self.T[
+                        int(j * self.heq.nx / Conf.dim_grille[1]): int((j + 1) * self.heq.nx / Conf.dim_grille[1]),
+                        int(i * self.heq.ny / Conf.dim_grille[0]): int((i + 1) * self.heq.ny / Conf.dim_grille[0])])
 
         # update heat for brick in contact to the liquid
-        if heating:
-            for brick in self.array[0]:
-                if brick is not None:
-                    brick.update(t_liquid, 1)
+        # if heating:
+        #
+        #     for i in range(Conf.dim_grille[0]):
+        #         brick_i = self.get(i, 0)
+        #         if brick_i is not None:
+        #             if not brick_i.material.is_broken:
+        #                 brick_i.update_corrosion()
+        #                 break
+        #             else:
+        #                 self.get(i, 1).update_corrosion()
 
         # update heat for brick in contact to the liquid
-        for column in self.array:
-            for brick in column:
-                if brick is not None:
-                    for index in brick.indexes:
-                        x, y = index[0], index[1]
-                        temp = self.get(x - 1, y), self.get(x + 1, y), self.get(x, y + 1), self.get(x, y - 1)
-                        for b in temp:
-                            if b is not None and b != brick:
-                                brick.update(b.material.temperature, b.material.r_th, temp)
-                        pass
-
-            pass
+        # for column in self.array:
+        #     for brick in column:
+        #         if brick is not None:
+        #             for index in brick.indexes:
+        #                 x, y = index[0], index[1]
+        #                 temp = self.get(x - 1, y), self.get(x + 1, y), self.get(x, y + 1), self.get(x, y - 1)
+        #                 for b in temp:
+        #                     if b is not None and b != brick:
+        #                         brick.update(0, temp)
+        #                 pass
+        #
+        #     pass
 
     def reset(self) -> void:
+        self.T0 = 25.0 * np.ones((self.ny, self.nx))
+        self.T0[:, 0] = 1500.0
+        self.T = self.T0.copy()
         for column in self.array:
             for brick in column:
                 if brick is not None:
-                    brick.material.T_in = 293
+                    brick.material.is_broken = False
+                    brick.material.health = 1.0
+
+    def is_valid(self) -> bool:
+        for i in range(Conf.dim_grille[0]):
+            for j in range(Conf.dim_grille[1]):
+                if self.get(i, j) is None:
+                    return False
+        return True

@@ -1,4 +1,6 @@
-varying vec2 vTexCoord;
+#version 140
+
+varying vec4 vTexCoord;
 
 
 void main(void)
