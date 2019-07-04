@@ -1,7 +1,7 @@
 import cv2
 import imutils
 import numpy as np
-from Global_tools import Config as p
+from source.Global_tools import Config as p
 
 
 def adjust_gamma(image, gamma=2.0):

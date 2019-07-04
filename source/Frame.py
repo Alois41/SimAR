@@ -1,13 +1,17 @@
-from brick import Brick, BrickArray
+import time
+
+from source.brick import Brick, BrickArray
 from time import clock
-from Global_tools import get_file_content
-from Global_tools import Config as Conf, Globals as Glob
-from Global_tools import glut_print
-from image_tools import *
-from drawing import *
+from source.Global_tools import get_file_content
+from source.Global_tools import Config as Conf, Globals as Glob
+from source.Global_tools import glut_print
+from source.image_tools import *
+from source.drawing import *
 from OpenGL.GL import *
 from datetime import timedelta
 from resources import Resources
+import threading
+
 
 strings = Resources.strings['fr']
 
@@ -16,8 +20,13 @@ class Camera:
 
     def __init__(self, width: int, height: int) -> void:
         self.capture = cv2.VideoCapture(Conf.cam_number)
+        time.sleep(3)
         self.capture.set(3, width)
         self.capture.set(4, height)
+        self.capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, .25)
+        self.capture.set(cv2.CAP_PROP_EXPOSURE, -5)
+        self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 5)
+        # self.capture.set(cv2.CAP_PROP_CONTRAST, 128)
         _, self.image_raw = self.capture.read()
 
     def take_frame(self) -> void:
@@ -35,7 +44,7 @@ class Frame:
 
         self.shader_handler_molten_steel = ShaderHandler("./shader/LavaShader", ["myTexture", "Time"])
         self.shader_handler_brick = ShaderHandler("./shader/TemperatureShader",
-                                                  ["Corrosion", "T"])
+                                                  ["Corrosion", "T", "brick_dim", "grid_pos", "step", "border"])
 
         self.old_hand_zone = None
         self.triggered_start, self.triggered_reset = False, False
@@ -56,29 +65,65 @@ class Frame:
         self.buttonStart = HandButton(3, self.tex_handler, Conf.hand_area_1, Conf.hand_threshold_1)
         self.buttonReset = HandButton(3, None, Conf.hand_area_2, Conf.hand_threshold_2)
 
+        self.frame_count = 0
+
     def update_bricks(self, calibration: bool = False) -> (np.ndarray, list):
         """ Process the current raw frame and return a texture to draw and the  detected bricks"""
 
-        image_raw = cv2.cvtColor(self.cam.image_raw, cv2.COLOR_BGR2RGBA)  # convert to RGBA
-        image = adjust_gamma(image_raw.copy(), 1 if calibration else 1.2)  # enhance gamma of the image
+        image = None
+        self.frame_count += 1
+        # update each n frames
+        if Glob.mode == 0 and self.frame_count % 5 == 1:  # building mode
+            image_raw = cv2.cvtColor(self.cam.image_raw, cv2.COLOR_BGR2RGBA)  # convert to RGBA
+            image_raw[np.std(image_raw[:, :, :3], axis=2) < 12.0] = [255, 255, 255, 255]
+            image_raw = adjust_gamma(image_raw.copy(), 1 if calibration else 2)  # enhance gamma of the image
+            contours, image = find_center_contours(image_raw)  # find contours in the center of the image
 
-        contours, image = find_center_contours(image)  # find contours in the center of the image
+            if calibration:
+                return image, []
 
-        if calibration:
-            return image, []
+            bricks = self.isolate_bricks(contours, image)  # detect bricks
 
-        bricks = self.isolate_bricks(contours, image)  # detect bricks
-        image[:, :, 3] = 255*np.ones((image.shape[0], image.shape[1]))
-        self.tex_handler.bind_update_texture(0, cv2.flip(image, 0), self.width, self.height)
+            image[:, :, 3] = 255 * np.ones((image.shape[0], image.shape[1]))
 
-        return image, bricks
+            if Glob.brick_array is None or len(Glob.brick_array.array) == 0:
+                Glob.brick_array = BrickArray(bricks)
+
+            else:
+                Glob.brick_array.invalidate()
+                for nb in bricks:
+                    prev_b = Glob.brick_array.get(nb.indexes[0][0], nb.indexes[0][1])
+                    if prev_b is not None and prev_b.is_almost(nb):
+                        prev_b.replace(nb)
+                    else:
+                        for index in nb.indexes:
+                            print("Brick added: " + str(nb.indexes[0]) + " (%s)" % nb.material.color)
+                            Glob.brick_array.set(index[0], index[1], nb)
+
+                Glob.brick_array.clear_invalid()
+
+        elif Glob.mode == 1:  # testing mode
+            for j in range(Conf.dim_grille[1]):
+                b = Glob.brick_array.get(0, j)
+                if b is not None:
+                    if Conf.cooling:
+                        Conf.t_chamber = Conf.temperature if Glob.f.triggered_start and Glob.f.triggered_number > 0 \
+                            else max(Conf.t_chamber - Conf.cooling_factor * Glob.delta_t, 293)
+                        Glob.brick_array.update()
+
+                    else:
+                        Glob.brick_array.update(Glob.f.triggered_start and Glob.f.triggered_number > 0)
+
+        if image is not None:
+            self.tex_handler.bind_update_texture(0, cv2.flip(image, 0), self.width, self.height)
+            Glob.frame = image
 
     def render(self) -> void:
         if Glob.frame is not None:
             self.draw_frame(Glob.frame)
+            y0, yf = Conf.cam_area[1][0], Conf.cam_area[0][0]
+            self.draw_molten_steel(Conf.width / 10 + 10, yf, 1.4 * Conf.width / 10, y0 - yf, 1, 1, 1)
             self.draw_ui()
-
-            self.draw_molten_steel(Conf.width / 10, 0, 1.4 * Conf.width / 10, 2.2 * Conf.height / 3, 1, 1, 1)
 
     def draw_frame(self, image: np.ndarray, calibrate: bool = False) -> void:
         """ Draw the frame with OpenGL as a texture in the entire screen"""
@@ -100,24 +145,8 @@ class Frame:
             y0, x0 = Conf.hand_area_1[0]
             yf, xf = Conf.hand_area_1[1]
             self.draw_texture(1, Conf.width - (xf - x0), 0, xf - x0, yf - y0)
-
-            if calibrate:
-                draw_rectangle_empty(0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height, 0,
-                                     0, 0, 5)
-
-            y0, x0 = Conf.cam_area[0]
-            yf, xf = Conf.cam_area[1]
-
-            if Glob.mode == 0:
-                # brick map
-                self.draw_texture(0, 0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height)
-                # draw grid
-                step_i = int((xf - x0) / Conf.dim_grille[0])
-                step_j = int((yf - y0) / Conf.dim_grille[1])
-                for i in range(Conf.dim_grille[0]):
-                    for j in range(Conf.dim_grille[1]):
-                        draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j,
-                                             0, 0, 0, 5 if calibrate else 2)
+            draw_rectangle_empty(0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height, 0,
+                                 0, 0, 5)
 
     def draw_ui(self) -> void:
         """ Draw user interface and decoration"""
@@ -155,11 +184,11 @@ class Frame:
                        "Temperatures %s" % str(timedelta(seconds=Glob.brick_array.sim_time)), 0.0, 0.0, 0.0, 1.0, 1)
 
         elif Conf.swap_time <= clock() % (3 * Conf.swap_time) <= 2 * Conf.swap_time:
-            self.draw_thermal_diffusivity(x_start, 0, Glob.brick_array)
+            self.draw_thermal_diffusivity(x_start, 0)
             glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Diffusivité thermique", 0.0, 0.0, 0.0, 1.0, 1)
 
         else:
-            self.draw_resistance_corr(x_start, 0, Glob.brick_array)
+            self.draw_resistance_corr(x_start, 0)
             glut_print(x_start, 100, GLUT_BITMAP_HELVETICA_18, "Resistances à la corrosion", 0.0, 0.0, 0.0, 1.0, 1)
             pass
 
@@ -170,8 +199,23 @@ class Frame:
             title = strings['title_test']
             subtitle = strings['sub_title_test1i'] % self.triggered_number
 
-        glut_print(x_start, Conf.height - 30, GLUT_BITMAP_HELVETICA_18, title, 0.0, 0.0, 0.0, 1.0, 20)
+        glut_print(x_start, Conf.height - 30, GLUT_BITMAP_HELVETICA_18,
+                   title + "    %0.0f fps" % (1 / Glob.delta_t), 0.0, 0.0, 0.0, 1.0, 20)
         glut_print(x_start, Conf.height - 60, GLUT_BITMAP_HELVETICA_18, subtitle, 0.0, 0.0, 0.0, 1.0, 20)
+
+        ratio = (1 / 4, 1 / 4)
+
+        y0, x0 = Conf.cam_area[0]
+        yf, xf = Conf.cam_area[1]
+
+        # brick map
+        self.draw_texture(0, 0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height)
+        # draw grid
+        step_i = int((xf - x0) / Conf.dim_grille[0])
+        step_j = int((yf - y0) / Conf.dim_grille[1])
+        for i in range(Conf.dim_grille[0]):
+            for j in range(Conf.dim_grille[1]):
+                draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j, 0.2, 0.2, 0.2, 4)
 
     def isolate_bricks(self, contours: list, image: np.ndarray) -> list:
         """ create bricks from contours"""
@@ -221,8 +265,8 @@ class Frame:
             cv2.drawContours(image, [box], 0, tuple([int(x) for x in c_rgb]), thickness=cv2.FILLED)
 
             # create a brick and add it to the array
-            b = Brick(rect, name_color)
-            cv2.putText(image, "%0.1f" % mean, (c_x - 20, c_y - 20), cv2.FONT_HERSHEY_SIMPLEX,
+            b = Brick(rect, closest_color)
+            cv2.putText(image, "%0.0f" % mean, (c_x - 20, c_y - 20), cv2.FONT_HERSHEY_SIMPLEX,
                         1.5, (0, 0, 0), thickness=10, lineType=10)
             cv2.putText(image, "%i%i" % (tuple(b.indexes[0])), (c_x - 20, c_y + 40), cv2.FONT_HERSHEY_SIMPLEX,
                         2, (0, 0, 0), thickness=10, lineType=10)
@@ -252,14 +296,16 @@ class Frame:
     def draw_molten_steel(self, x_s: int, y_s: int, w: int, h: int, r: float, g: float, b: float) -> void:
         """ draw "molten_steel" from a texture"""
 
-        draw_rectangle(x_s, y_s - 20, w, h, 0.3, 0.3, 0.3)
-        draw_rectangle(x_s - 10, y_s - 20, 10, h, 0.1, 0.1, 0.1)
-
-        draw_rectangle(x_s, 120, w, 20, 0.1, 0.1, 0.1)
+        # draw_rectangle(x_s, y_s - 20, w, h, 0.3, 0.3, 0.3)
+        # draw_rectangle(x_s - 10, y_s - 20, 10, h, 0.1, 0.1, 0.1)
+        #
+        # draw_rectangle(x_s, 120, w, 20, 0.1, 0.1, 0.1)
 
         # load shader
 
         if self.triggered_start and self.triggered_number > 0:
+            y0, x0 = Conf.cam_area[0]
+            yf, xf = Conf.cam_area[1]
             delta_t = clock() - self.shader_clock
             self.offset += delta_t * 0.01
             self.shader_clock = clock()
@@ -269,29 +315,30 @@ class Frame:
             glEnable(GL_TEXTURE_2D)
             self.tex_handler.use_texture(2)
             glColor(r, g, b, 1)
-            draw_textured_rectangle(x_s, y_s, w, h)
+            draw_textured_rectangle(x_s, y_s, w + (xf - x0), h)
             glDisable(GL_TEXTURE_2D)
 
             self.shader_handler_molten_steel.unbind()
 
-        draw_rectangle(x_s, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
-        draw_rectangle(x_s + .5 * w + 20, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
+        # draw_rectangle(x_s, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
+        # draw_rectangle(x_s + .5 * w + 20, 120, .5 * w - 20, 100, 0.1, 0.1, 0.1)
+        #
+        # draw_rectangle(x_s, 160, w, 0.5 * w, 0.1, 0.1, 0.1)
+        #
+        # draw_rectangle(x_s, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
+        # draw_rectangle(x_s + .5 * w + 20, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
 
-        draw_rectangle(x_s, 160, w, 0.5 * w, 0.1, 0.1, 0.1)
-
-        draw_rectangle(x_s, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
-        draw_rectangle(x_s + .5 * w + 20, 0, .5 * w - 20, 120, 0.3, 0.3, 0.3)
-
-    def draw_thermal_diffusivity(self, x_s: int, y_s: int, bricks: BrickArray) -> void:
+    def draw_thermal_diffusivity(self, x_s: int, y_s: int) -> void:
         y0, x0 = Conf.cam_area[0]
         yf, xf = Conf.cam_area[1]
         step = int((xf - x0) / Conf.dim_grille[0])
         for c in range(Conf.dim_grille[0]):
             for l in range(Conf.dim_grille[1]):
-                b_xy = bricks.get(c, l)
+                b_xy = Glob.brick_array.get(c, l)
                 t = b_xy.material.diffusivity if b_xy is not None else np.nan
                 if not np.isnan(t):
-                    draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, t*1E5, 0, 1 - t*1E5)
+                    draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, t * 1E5, 0,
+                                   1 - t * 1E5)
                 else:
                     draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, 0, 0, 0)
 
@@ -299,13 +346,13 @@ class Frame:
                     glut_print(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20 + 5,
                                GLUT_BITMAP_HELVETICA_12, "%0.2E" % t, 1, 1, 1, 1.0, 1)
 
-    def draw_resistance_corr(self, x_s: int, y_s: int, bricks) -> void:
+    def draw_resistance_corr(self, x_s: int, y_s: int) -> void:
         y0, x0 = Conf.cam_area[0]
         yf, xf = Conf.cam_area[1]
         step = int((xf - x0) / Conf.dim_grille[0])
         for c in range(Conf.dim_grille[0]):
             for l in range(Conf.dim_grille[1]):
-                b_xy = bricks.get(c, l)
+                b_xy = Glob.brick_array.get(c, l)
                 t = b_xy.material.r_cor if b_xy is not None else np.nan
                 if not np.isnan(t):
                     draw_rectangle(x_s + c * step, y_s + (Conf.dim_grille[1] - l) * 20, step, 20, t, 0, 1 - t)
@@ -323,41 +370,49 @@ class Frame:
             h = 20
 
             if i == 1 and Glob.mode == 1:
-                w, h = xf-x0, (yf-y0) / Conf.dim_grille[1]
+                w, h = xf - x0, (yf - y0) / Conf.dim_grille[1]
                 x_s, y_s = x0, y0 - h
-
-            if self.triggered_start and self.triggered_number > 0:
-                delta_t = clock() - self.shader_clock
-                self.offset += delta_t * 0.01
-                self.shader_clock = clock()
-                self.shader_handler_molten_steel.bind(data=[None, self.offset])
-                # update offset from clock to scroll the texture
-                glEnable(GL_TEXTURE_2D)
-                self.tex_handler.use_texture(2)
-                draw_textured_rectangle(x_s, y_s + 3*h, (xf - x0), 2*h)
-                glDisable(GL_TEXTURE_2D)
-                self.shader_handler_molten_steel.unbind()
 
             step = int((xf - x0) / Conf.dim_grille[0])
             for index_c in range(Conf.dim_grille[0]):
                 for index_l in range(Conf.dim_grille[1]):
                     b_xy: Brick = bricks.get(index_c, index_l)
                     if b_xy is not None:
-                        self.shader_handler_brick.bind([b_xy.material.health, b_xy.material.T])
+                        index = b_xy.indexes[0]
+                        temp_array = Glob.brick_array.T
+                        pos = index[1] * Glob.brick_array.step_y * (temp_array.shape[1]) + \
+                              index[0] * Glob.brick_array.step_x
+
+                        border = 0
+                        if index[0] < Conf.dim_grille[0] - 1:
+                            border += 1
+                        if index[1] < Conf.dim_grille[1] - 1:
+                            border += 2
+
+                        self.shader_handler_brick.bind([b_xy.material.health, temp_array.flatten().copy(),
+                                                        [Glob.brick_array.step_x, Glob.brick_array.step_y],
+                                                        pos, Glob.brick_array.nx, border])
+
                         draw_rectangle(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h, step, h)
                         self.shader_handler_brick.unbind()
-                    else:
-                        draw_rectangle(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h, step, h, 0, 0, 0)
-
-                    if b_xy is not None:
+                        draw_rectangle_empty(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h, step, h,
+                                             b_xy.material.color[0], b_xy.material.color[1], b_xy.material.color[2], 2)
                         glut_print(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h + 5,
                                    GLUT_BITMAP_HELVETICA_12, "%0.0f" % np.mean(b_xy.material.T), 1, 1, 1, 1.0, 1)
+
+                    else:
+                        draw_rectangle(x_s + index_c * step, y_s + (Conf.dim_grille[1] - index_l) * h, step, h, 0, 0, 0)
 
     def draw_texture(self, tex_loc: int, x: int, y: int, l: int, h: int) -> void:
         glEnable(GL_TEXTURE_2D)
         self.tex_handler.use_texture(tex_loc)
         draw_textured_rectangle(x, y, l, h)
         glDisable(GL_TEXTURE_2D)
+
+    def run(self):
+        while True:
+            t = threading.Thread(target=self.update_bricks)
+            t.start()
 
 
 class HandButton:

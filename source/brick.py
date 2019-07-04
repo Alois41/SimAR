@@ -1,9 +1,8 @@
-from OpenGL.GL import *
 from OpenGL.GLUT import *
-from OpenGL.GL.shaders import *
 import numpy as np
-from Global_tools import get_file_content, Config as Conf
-from heatEquation import HeatEquation
+import cv2
+from source.Global_tools import Config as Conf
+from source.heatEquation import HeatEquation
 
 
 class Brick:
@@ -27,7 +26,7 @@ class Brick:
         return b_ij
 
     def is_almost(self, b):
-        return self.geometry.compare(b.geometry) and self.material.color == b.material.color
+        return self.geometry.compare(b.geometry) and self.material.color_name == b.material.color
 
     def replace(self, brick):
         self.is_invalid = False
@@ -76,11 +75,12 @@ class BrickGeometry:
 
 class BrickMaterial:
     def __init__(self, color):
-        self.color = color
-        self.conductivity, self.capacity, self.density, self.r_cor = Conf.color_to_mat[color]
+        self.color_name = Conf.color_dict[color]
+        self.color = cv2.cvtColor(np.uint8([[[color/2, 128, 255]]]), cv2.COLOR_HLS2RGB).flatten() / 255.0
+        self.conductivity, self.capacity, self.density, self.r_cor = Conf.color_to_mat[self.color_name]
         self.is_broken = False
-        self.health = 1.0
-        self.T = [0]  # °C
+        self.health = 1.5
+        self.T = [0]  # °K
 
     def update_corrosion(self):
         self.health = max(0.0, self.health - 0.01 * (1.0 - self.r_cor))
@@ -88,6 +88,11 @@ class BrickMaterial:
     @property
     def diffusivity(self):
         return self.conductivity / (self.capacity * self.density)
+
+    def break_mat(self):
+        self.T[:, :] = Conf.temperature
+        self.conductivity, self.capacity, self.density = 200, 0.001, 0.001
+        pass
 
 
 class BrickArray:
@@ -97,14 +102,15 @@ class BrickArray:
             for j in range(Conf.dim_grille[1]):
                 self.array[i][j] = Brick.get_brick(bricks, i, j)
 
-        self.w = .7  # m
-        self.h = .4  # m
-        self.dx = 0.01  # m / points
-        self.dy = 0.01  # m / points
+        self.w = .07  # m
+        self.h = .04  # m
+        self.dx = 0.001  # m / points
+        self.dy = 0.001  # m / points
         self.nx, self.ny = int(np.ceil(self.w / self.dx)), int(np.ceil(self.h / self.dy))  # points
-        self.T = 25.0 * np.ones((self.ny, self.nx))  # °C
+        self.T = 293.0 * np.ones((self.ny, self.nx))  # °K
         self.sim_time = 0  # s
         self.heq = None
+        self.step_x, self.step_y = 0, 0
 
     def get(self, i: int, j: int) -> Brick:
         return self.array[i][j] if 0 <= i < Conf.dim_grille[0] and 0 <= j < Conf.dim_grille[1] else None
@@ -126,7 +132,7 @@ class BrickArray:
             for brick in column:
                 if brick is not None and brick.is_invalid:
                     for index in brick.indexes:
-                        print("Brick removed: " + str(index) + brick.material.color)
+                        print("Brick removed: " + str(index) + " (%s)" % brick.material.color)
                         self.set(index[0], index[1], None)
 
     def init_heat_eq(self):
@@ -143,51 +149,41 @@ class BrickArray:
                 _capacity[j, i] = material.capacity
                 _density[j, i] = material.density
         self.heq: HeatEquation = HeatEquation(self.T, self.dx, _density, _conductivity, _capacity)
+        self.step_x = self.heq.nx / Conf.dim_grille[1]
+        self.step_y = self.heq.ny / Conf.dim_grille[0]
 
     def update(self, heating=True) -> void:
         if self.heq is not None:
             if heating:
+                # conditions
                 self.heq.temperature[:, 0] = 1500
-            self.heq.evolve_ts()
-            self.sim_time += self.heq.dt
+                # time step
+                self.heq.evolve_ts()
+                self.sim_time += self.heq.dt
 
             for i in range(Conf.dim_grille[0]):
                 for j in range(Conf.dim_grille[1]):
-                    self.get(i, j).material.T = np.flipud(
-                        self.T[
-                        int(j * self.heq.nx / Conf.dim_grille[1]): int((j + 1) * self.heq.nx / Conf.dim_grille[1]),
-                        int(i * self.heq.ny / Conf.dim_grille[0]): int((i + 1) * self.heq.ny / Conf.dim_grille[0])])
+                    self.get(i, j).material.T = np.flipud(self.T[int(j * self.step_x): int((j + 1) * self.step_x),
+                                                                 int(i * self.step_y): int((i + 1) * self.step_y)])
 
         # update heat for brick in contact to the liquid
-        # if heating:
-        #
-        #     for i in range(Conf.dim_grille[0]):
-        #         brick_i = self.get(i, 0)
-        #         if brick_i is not None:
-        #             if not brick_i.material.is_broken:
-        #                 brick_i.update_corrosion()
-        #                 break
-        #             else:
-        #                 self.get(i, 1).update_corrosion()
+        if heating:
 
-        # update heat for brick in contact to the liquid
-        # for column in self.array:
-        #     for brick in column:
-        #         if brick is not None:
-        #             for index in brick.indexes:
-        #                 x, y = index[0], index[1]
-        #                 temp = self.get(x - 1, y), self.get(x + 1, y), self.get(x, y + 1), self.get(x, y - 1)
-        #                 for b in temp:
-        #                     if b is not None and b != brick:
-        #                         brick.update(0, temp)
-        #                 pass
-        #
-        #     pass
+            for i in range(Conf.dim_grille[0]):
+                brick_i = self.get(i, 0)
+                if brick_i is not None:
+                    if not brick_i.material.is_broken:
+                        brick_i.update_corrosion()
+                        if brick_i.material.health <= 0.0:
+                            brick_i.material.is_broken = True
+                            brick_i.material.break_mat()
+                        break
+                    else:
+                        pass
+                        # self.get(i, 1).update_corrosion()
 
     def reset(self) -> void:
-        self.T0 = 25.0 * np.ones((self.ny, self.nx))
-        self.T0[:, 0] = 1500.0
-        self.T = self.T0.copy()
+        self.T = 293.0 * np.ones((self.ny, self.nx))
         for column in self.array:
             for brick in column:
                 if brick is not None:

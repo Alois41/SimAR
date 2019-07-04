@@ -101,17 +101,14 @@ class HeatEquation(object):
         :param dt: float time interval
         """
         _dt = dt if dt else self.dt
-        self.temperature[1:-1, 1:-1] = \
-            self.temperature[1:-1, 1:-1] \
-            + _dt * (((self.temperature[2:, 1:-1] - self.temperature[1:-1, 1:-1]) *
-                      self.thermal_conductivity_dx_minus / (self.density_middle * self.specific_heat_capacity_middle)
-                      + (self.temperature[:-2, 1:-1] - self.temperature[1:-1, 1:-1]) * self.thermal_conductivity_dx_plus
-                      / (self.density_middle * self.specific_heat_capacity_middle)) / self.dx2
-                     + ((self.temperature[1:-1, 2:] - self.temperature[1:-1, 1:-1])
-                        * self.thermal_conductivity_dy_minus / (
-                                    self.density_middle * self.specific_heat_capacity_middle)
-                        + (self.temperature[1:-1, :-2] - self.temperature[1:-1, 1:-1])
-                        * self.thermal_conductivity_dy_plus / (
-                                    self.density_middle * self.specific_heat_capacity_middle))
-                     / self.dy2)
+        self.temperature[1:-1, 1:-1] = self.temperature[1:-1, 1:-1] + _dt * (
+                ((self.temperature[2:, 1:-1] - self.temperature[1:-1, 1:-1]) *
+                 self.thermal_conductivity_dx_minus / (self.density_middle * self.specific_heat_capacity_middle)
+                 + (self.temperature[:-2, 1:-1] - self.temperature[1:-1, 1:-1]) * self.thermal_conductivity_dx_plus
+                 / (self.density_middle * self.specific_heat_capacity_middle)) / self.dx2
+                + ((self.temperature[1:-1, 2:] - self.temperature[1:-1, 1:-1])
+                   * self.thermal_conductivity_dy_minus / (self.density_middle * self.specific_heat_capacity_middle)
+                   + (self.temperature[1:-1, :-2] - self.temperature[1:-1, 1:-1])
+                   * self.thermal_conductivity_dy_plus / (self.density_middle * self.specific_heat_capacity_middle))
+                / self.dy2)
         self.boundary_temp_adjust()

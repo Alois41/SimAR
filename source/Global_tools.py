@@ -3,7 +3,6 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import yaml
-from docutils.nodes import section
 
 
 def get_file_content(file):
@@ -78,7 +77,7 @@ class Globals:
     f, brick_array = None, None
     frame, frame_hand = None, None
     t_chamber = 25
-    t_ref = clock()
+    t_ref, delta_t = clock(), 0
     hand_text = None
 
     updating = False

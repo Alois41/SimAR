@@ -1,15 +1,13 @@
-import sys
-import os.path
-sys.path.append(os.path.abspath("./source"))
-from source import *
-from time import clock
+from time import clock, sleep
 from OpenGL.GL import *
 from OpenGL.GLUT import *
-from Frame import Frame
+from source.Frame import Frame
 from OpenGL.GLU import *
-from OpenGL.GLUT.fonts import *
-from Global_tools import Config as Conf, Globals as Glob
-from brick import BrickArray
+from source.Global_tools import Config as Conf, Globals as Glob
+from source.brick import BrickArray
+import sys
+sys.path += ['.']
+OpenGL.ERROR_ON_COPY = True
 
 
 def init():
@@ -21,56 +19,29 @@ def init():
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     Glob.f = Frame(Conf.width, Conf.height)
+    # Glob.f.run()
 
 
 def idle():
-    if 1:
+    try:
         # capture next frame
-        Conf.delta_t = clock() - Glob.t_ref
+        Glob.delta_t = clock() - Glob.t_ref
+        Glob.t_ref = clock()
+        sleep(max(0, 1/30 - Glob.delta_t))
+        print(1/30 - Glob.delta_t)
 
         # update frame
         Glob.f.cam.take_frame()
-        # TODO: separate f for modes
-        Glob.frame, new_bricks = Glob.f.update_bricks()
-
-        if Glob.mode == 0:  # building mode
-
-            # new_bricks = p.brick_array if p.f.triggered else new_bricks
-
-            if Glob.brick_array is None or len(Glob.brick_array.array) == 0:
-                Glob.brick_array = BrickArray(new_bricks)
-
-            else:
-                Glob.brick_array.invalidate()
-                for nb in new_bricks:
-                    prev_b = Glob.brick_array.get(nb.indexes[0][0], nb.indexes[0][1])
-                    if prev_b is not None:
-                        prev_b.replace(nb)
-                    else:
-                        for index in nb.indexes:
-                            print("Brick added: " + str(nb.indexes[0]) + nb.material.color)
-                            Glob.brick_array.set(index[0], index[1], nb)
-
-                Glob.brick_array.clear_invalid()
-
-        elif Glob.mode == 1:  # testing mode
-            for j in range(Conf.dim_grille[1]):
-                b = Glob.brick_array.get(0, j)
-                if b is not None:
-                    if Conf.cooling:
-                        Conf.t_chamber = Conf.temperature if Glob.f.triggered_start and Glob.f.triggered_number > 0 \
-                            else max(Conf.t_chamber - Conf.cooling_factor * Conf.delta_t, 293)
-                        Glob.brick_array.update(Conf.t_chamber)
-                    else:
-                        Glob.brick_array.update(Conf.temperature, Glob.f.triggered_start and Glob.f.triggered_number > 0)
+        Glob.f.update_bricks()
 
         Conf.hand_text = Glob.f.detect_hand()
         glutPostRedisplay()
-    # except Exception as e:
-    #     if "empty" in str(e):
-    #        raise IOError("Camera not working or camera index wrong")
-    #     else:
-    #         raise e
+
+    except Exception as e:
+        if "empty" in str(e):
+            raise IOError("Camera not working or camera index wrong")
+        else:
+            raise e
 
 
 def display():
