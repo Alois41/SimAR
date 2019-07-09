@@ -3,6 +3,7 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import yaml
+import numpy as np
 
 
 def get_file_content(file):
@@ -10,7 +11,7 @@ def get_file_content(file):
     return content
 
 
-def glut_print(x, y, font, text, r, g, b, a, scale):
+def glut_print(x, y, font, text, r, g, b):
     blending = False
     if glIsEnabled(GL_BLEND):
         blending = True
@@ -40,9 +41,11 @@ class Config:
 
     section = cfg["grid"]
     dim_grille = section["dim_grille"]
+    force_full = section["force_full"]
 
     section = cfg["camera"]
-    cam_area = section["cam_area"]
+    cam_area = np.array([[.20*height, .20*width], [.80*height, .87*width]], dtype=np.uint16)
+        #section["cam_area"]
     cam_number = section["cam_number"]
 
     section = cfg["button"]
@@ -50,6 +53,7 @@ class Config:
     hand_area_2 = section["hand_area_2"]
     hand_threshold_1 = section["hand_threshold_1"]
     hand_threshold_2 = section["hand_threshold_2"]
+    cooldown = section["cooldown"]
 
     section = cfg["brick"]
     min_brick_size = section["min_brick_size"]

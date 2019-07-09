@@ -4,16 +4,18 @@ screen:
 
 grid:
   dim_grille: [7,4,2]
+  force_full: False
 
 camera:
   cam_area: [[192,256], [576,768]]
-  cam_number: 0
+  cam_number: 1
 
 button:
   hand_area_1: [[326, 900], [376, 1000]]
   hand_area_2: [[326, 0], [376, 100]]
   hand_threshold_1: 1_500 # pxl area
-  hand_threshold_2: 2_500 # pxl area
+  hand_threshold_2: 2_000 # pxl area
+  cooldown: 2
 
 
 brick:
@@ -29,19 +31,19 @@ color:
   # hue: name
   60: "Yellow"
   340: "Magenta"
-  190: "Cyan"
+  200: "Cyan"
   35: "Orange"
   0: "Red"
-  75: "Green"
+  80: "Green"
 
 color_mat:
   # name: [conductivity, capacity, density, r_corrosion]
   #        W/(m*K),      J/(kg/K), kg/m^3
   "Black":   [0, 2000, 600, .0]
   "Blue":    [0, 2000, 600, .2]
-  "Yellow":  [0, 2000, 600, .5]
+  "Yellow":  [1, 2000, 600, .5]
   "Magenta": [20.0, 500, 2600, .9]
-  "Cyan":    [0, 2000, 600, .5]
+  "Cyan":    [0.02, 2000, 600, .3]
   "Orange":  [0, 2000, 600, .9]
   "Red":     [0, 2000, 600, .9]
   "Green":   [0, 2000, 600, .9]

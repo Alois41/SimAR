@@ -6,7 +6,7 @@ class HeatEquation(object):
     Implements a numerical solution of the 2d heat equation, allowing heterogenous materials.
     """
 
-    def __init__(self, temperature, dx, density, thermal_conductivity, specific_heat_capacity, dt=None):
+    def __init__(self, temperature, dx, dy, density, thermal_conductivity, specific_heat_capacity, dt=None):
         """
         :param temperature: (eg. Kelvin) numpy array of float with two dimensions. The starting temperature array.
         :param dx: float spatial interval (eg. meters) between row elements.
@@ -19,7 +19,7 @@ class HeatEquation(object):
         self.nx = self.temperature.shape[0]
         self.ny = self.temperature.shape[1]
         self.dx = float(dx)
-        self.dy = self.dx
+        self.dy = float(dy)
         if isinstance(density, np.ndarray) and density.shape == self.temperature.shape:
             self.density = density
         else:

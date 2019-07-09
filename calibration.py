@@ -2,15 +2,23 @@ from time import clock, sleep
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from source.Frame import Frame
+from source.Frame import Camera
 from OpenGL.GLU import *
 from source.Global_tools import Config as Conf, Globals as Glob
+from source.drawing import *
+from source.Global_tools import Config as Conf, Globals as Glob
 import sys
+import cv2
+import matplotlib.pyplot as plt
 sys.path += ['.']
 OpenGL.ERROR_ON_COPY = True
 
+texture_array = None
+
+camera = Camera(Conf.width, Conf.height)
+
 
 def init():
-    clock()
     glClearColor(0.0, 0.0, 0.0, 1.0)
     glutDisplayFunc(display)
     # glutReshapeFunc(reshape)
@@ -18,55 +26,37 @@ def init():
     glutIdleFunc(idle)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    Glob.f = Frame(Conf.width, Conf.height)
-    # Glob.f.run()
 
 
 def idle():
-    try:
-        # capture next frame
-        Glob.delta_t = clock() - Glob.t_ref
-        Glob.t_ref = clock()
-        # sleep(max(0, 1/30 - Glob.delta_t))
-        # print(1/30 - Glob.delta_t)
+    camera.take_frame()
 
-        # update frame
-        Glob.f.cam.take_frame()
-        Glob.f.update_bricks()
+    image = cv2.flip(cv2.cvtColor(camera.image_raw, cv2.COLOR_BGR2RGBA), 0)
+    image = cv2.addWeighted(image, 2, image, 0, -300)
 
-        if Glob.mode == 1:
-            for j in range(Conf.dim_grille[1]):
-                b = Glob.brick_array.get(0, j)
-                if b is not None:
-                    if Conf.cooling:
-                        Conf.t_chamber = Conf.temperature if Glob.f.triggered_start and Glob.f.triggered_number > 0 \
-                            else max(Conf.t_chamber - Conf.cooling_factor * Glob.delta_t, 293)
-                        Glob.brick_array.update()
-
-                    else:
-                        Glob.brick_array.update(Glob.f.triggered_start and Glob.f.triggered_number > 0)
-
-        Conf.hand_text = Glob.f.detect_hand()
-
-    except Exception as e:
-        raise e
+    glBindTexture(GL_TEXTURE_2D, texture_array)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.shape[1], image.shape[0],
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, image)
     glutPostRedisplay()
 
 
 def display():
-
+    global texture_array
     # Set Projection Matrix
+    if texture_array is None:
+        texture_array = glGenTextures(1)
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     gluOrtho2D(0, Conf.width, 0, Conf.height)
-
     # Switch to Model View Matrix
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
-
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-    Glob.f.render()
+    draw_rectangle(.5*Conf.width, 0, 100, 100, 1, 1, 1)
+
+    draw_texture(texture_array, 100, 0, 200, 200)
+
     glutSwapBuffers()
 
 
@@ -91,6 +81,13 @@ def reshape(w, h):
 def keyboard(key, x, y):
     if key == b'\x1b':
         sys.exit()
+
+
+def draw_texture(tex_loc: int, x: int, y: int, l: int, h: int) -> void:
+    glEnable(GL_TEXTURE_2D)
+    glBindTexture(GL_TEXTURE_2D, tex_loc)
+    draw_textured_rectangle(x, y, l, h)
+    glDisable(GL_TEXTURE_2D)
 
 
 glutInit(sys.argv)
