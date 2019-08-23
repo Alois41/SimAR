@@ -1,7 +1,10 @@
-#version 140
+#version 130
+
+
 varying vec3 pos_fragment;
 varying vec4 vTexCoord;
 
+// uniform mat4 modelViewMatrix;
 
 void main(void)
 {

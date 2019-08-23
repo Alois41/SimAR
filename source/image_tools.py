@@ -1,7 +1,7 @@
 import cv2
 import imutils
 import numpy as np
-from source.Global_tools import Config as p
+from source.configuration import Config as p
 
 
 def adjust_gamma(image, gamma=2.0):
@@ -15,8 +15,8 @@ def adjust_gamma(image, gamma=2.0):
     return cv2.LUT(image, table)
 
 
-def crop_zone(image, x, y, l, h):
-    return image[int(y):int(y + h), int(x):int(x + l)]
+def crop_zone(image, x0, y0, xf, yf):
+    return image[int(y0):int(yf), int(x0):int(xf)]
 
 
 def zoom_center(image):

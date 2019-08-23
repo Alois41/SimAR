@@ -1,11 +1,26 @@
 <component name="InspectionProjectProfileManager">
   <profile version="1.0">
     <option name="myName" value="Project Default" />
+    <inspection_tool class="PyStubPackagesAdvertiser" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="PyQt5" />
+        </list>
+      </option>
+    </inspection_tool>
     <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="ignoredIdentifiers">
         <list>
           <option value="Frame.GLUT_BITMAP_HELVETICA_18" />
           <option value="Frame.GLUT_BITMAP_HELVETICA_12" />
+          <option value="ImageHandler.*" />
+          <option value="calibration.*" />
+          <option value="glm.*" />
+          <option value="multiprocessing.Array" />
+          <option value="hand_button.GLUT_BITMAP_HELVETICA_18" />
+          <option value="image_analyser.GLUT_BITMAP_HELVETICA_18" />
+          <option value="image_analyser.GLUT_BITMAP_HELVETICA_12" />
+          <option value="augmented_reality.GLUT_BITMAP_HELVETICA_18" />
         </list>
       </option>
     </inspection_tool>
