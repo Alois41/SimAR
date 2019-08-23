@@ -1,8 +1,8 @@
 from OpenGL.GLUT import *
 import numpy as np
 import cv2
-from source.Global_tools import Config as Conf
-from source.heatEquation import HeatEquation
+from source.configuration import Config as Conf
+from source.heat_equation import HeatEquation
 
 
 class Brick:
@@ -40,7 +40,7 @@ class Brick:
     def is_almost(self, b):
         if self.is_void or b.is_void:
             return False
-        return self.geometry.compare(b.geometry) and self.material.color_name == b.material.color
+        return self.geometry.compare(b.geometry) and np.array_equal(self.material.color_name, b.material.color)
 
     def replace(self):
         self.is_invalid = False
@@ -90,14 +90,14 @@ class BrickGeometry:
 class BrickMaterial:
     def __init__(self, color=-1):
         self.color_name = Conf.color_dict[color]
-        self.color = cv2.cvtColor(np.uint8([[[color / 2, 128, 255]]]), cv2.COLOR_HLS2RGB).flatten() / 255.0
+        self.color = cv2.cvtColor(np.uint8([[[color / 2, 50, 255]]]), cv2.COLOR_HLS2RGB).flatten() / 255.0
         self.conductivity, self.capacity, self.density, self.r_cor = Conf.color_to_mat[self.color_name]
         self.is_broken = False if color >= 0 else True
         self.health = 1.4
         self.T = [0]  # °K
 
     def update_corrosion(self, dt):
-        self.health = max(0.0, self.health - .01 * dt * (1.0 - self.r_cor))
+        self.health = max(0.0, self.health - .1 * dt * (1.0 - self.r_cor))
 
     @property
     def diffusivity(self):
@@ -109,7 +109,7 @@ class BrickMaterial:
 
 
 class BrickArray:
-    def __init__(self, bricks):
+    def __init__(self, bricks, liquid_im):
         self.array = np.array([[None] * Conf.dim_grille[1]] * Conf.dim_grille[0])
         for i in range(Conf.dim_grille[0]):
             for j in range(Conf.dim_grille[1]):
@@ -121,12 +121,14 @@ class BrickArray:
         self.w = Conf.dim_grille[0]/10  # m
         self.h = Conf.dim_grille[1]/10  # m
         self.dx = 0.01  # m / points
-        self.dy = 0.05  # m / points
+        self.dy = 0.01  # m / points
         self.nx, self.ny = int(np.ceil(self.w / self.dx)), int(np.ceil(self.h / self.dy))  # points
         self.T = 293.0 * np.ones((self.ny, self.nx))  # °K
         self.sim_time = 0  # s
         self.heq = None
         self.step_x, self.step_y = 0, 0
+
+        self.liquid_im = liquid_im
 
     def get(self, i: int, j: int) -> Brick:
         return self.array[i][j] if 0 <= i < Conf.dim_grille[0] and 0 <= j < Conf.dim_grille[1] else None
@@ -157,6 +159,12 @@ class BrickArray:
         _density = 500 * np.ones((self.ny, self.nx))
         _capacity = 500 * np.ones((self.ny, self.nx))
         _temperature = self.heq.temperature
+
+        with self.liquid_im.get_lock():
+            arr = np.frombuffer(self.liquid_im.get_obj())
+            liquid_array = np.resize(arr, (10 * Conf.dim_grille[1], 10 * (Conf.dim_grille[0] + 1), 4))
+            liquid_array = np.flip(liquid_array, 0)
+
         for i in range(self.nx):
             for j in range(self.ny):
                 index_i = i / (self.nx / Conf.dim_grille[0])
@@ -168,7 +176,14 @@ class BrickArray:
                     _capacity[j, i] = material.capacity
                     _density[j, i] = material.density
                     if brick.drowned:
+                        _conductivity[j, i] = 20.0
+                        _capacity[j, i] = 500
+                        _density[j, i] = 2600
+
+                    # if there's liquid, set temp to liquid temp
+                    if liquid_array[..., 0][j, i] > 0.0:
                         _temperature[j, i] = 1500
+
                 else:
                     _conductivity[j, i] = 0
                     _capacity[j, i] = 1
@@ -202,32 +217,11 @@ class BrickArray:
         return np.flipud(self.T[int(j * self.step_x): int((j + 1) * self.step_x),
                          int(i * self.step_y): int((i + 1) * self.step_y)])
 
-    def update(self, heating=True) -> void:
-        if self.heq is not None:
-            if heating:
-                self.heq.temperature[:, 0] = 1500
-                # time step
-                for i in range(int(1/self.heq.dt)):
-                    self.heq.evolve_ts()
-                    self.sim_time += self.heq.dt
+    def update(self, heating=False) -> void:
 
-        # update heat for brick in contact to the liquid
-        if heating:
-
-            for i in range(Conf.dim_grille[0]):
-                brick_i = self.get(i, 0)
-                if brick_i is not None:
-                    if not brick_i.material.is_broken:
-                        brick_i.update_corrosion(self.heq.dt)
-                        if brick_i.material.health <= 0.0:
-                            brick_i.material.is_broken = True
-                            brick_i.material.break_mat()
-                        break
-
+        # LIQUID UPDATE
         # update brick to fill with steel
-        for j in range(Conf.dim_grille[1]):
-            if self.get(0, j).material.is_broken:
-                self.get(0, j).drowned = True
+        self.get(0, 0).drowned = True
 
         for i in range(Conf.dim_grille[0]):
             for j in range(Conf.dim_grille[1]):
@@ -240,16 +234,44 @@ class BrickArray:
                             b2.drowned = True
                             b2.material = BrickMaterial(color=-2)
                             self.set(index[0], index[1], b2)
+        # HEAT UPDATE
+        if self.heq is not None:
+            if heating:
+                # self.heq.temperature[0, 0] = 1500
+                # update corrosion
+                for i in range(Conf.dim_grille[0]):
+                    brick_i = self.get(i, 0)
+                    if brick_i is not None:
+                        if not brick_i.material.is_broken:
+                            brick_i.update_corrosion(self.heq.dt)
+                            if brick_i.material.health <= 0.0:
+                                brick_i.material.is_broken = True
+                                brick_i.material.break_mat()
+                            break
+                # time step
+                speed = 10
+                for i in range(speed):
+                    self.heq.evolve_ts()
+                    self.sim_time += self.heq.dt
+
         self.update_eq()
 
     def reset(self) -> void:
-        self.T = 293.0 * np.ones((self.ny, self.nx))
-        for column in self.array:
-            for brick in column:
-                brick.drowned = False
-                if not brick.is_void:
-                    brick.material.is_broken = False
-                    brick.material.health = 1.0
+        self.T = 293.0 * np.zeros((self.ny, self.nx))
+
+        with self.liquid_im.get_lock():
+            arr = np.frombuffer(self.liquid_im.get_obj())
+            arr[:] = np.zeros(arr.shape)
+
+        for brick in self.array.flatten():
+            brick.T = [0]
+            brick.drowned = False
+            if not brick.is_void:
+                brick.material.is_broken = False
+                brick.material.health = 1.0
+
+        # self.update()
+        self.init_heat_eq()
 
     def is_valid(self) -> bool:
         if not Conf.force_full:
@@ -259,3 +281,30 @@ class BrickArray:
                 if self.get(i, j) is None:
                     return False
         return True
+
+    def test_loose(self) -> bool:
+        test = False
+        for b in self.array.flatten():
+            if b.drowned:
+                for index in b.indexes:
+                    test = True if index[0] >= Conf.dim_grille[0]-1 or index[1] >= Conf.dim_grille[1]-1 else test
+        return test
+
+    def get_grid(self):
+        grid = np.zeros(self.array.shape)
+        for b in self.array.flatten():
+            if b.is_void or b.drowned:
+                grid[min(Conf.dim_grille[0] - 1, b.indexes[0][0]),
+                     min(Conf.dim_grille[1] - 1, b.indexes[0][1])] = 0.0
+            else:
+                grid[min(Conf.dim_grille[0] - 1, b.indexes[0][0]),
+                     min(Conf.dim_grille[1] - 1, b.indexes[0][1])] = -1
+
+        return np.flip(grid, 1)
+
+    def get_capacity(self):
+        c = 1
+        for b in self.array.flatten():
+            if b.drowned:
+                c += 1
+        return c
