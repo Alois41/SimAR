@@ -3,34 +3,39 @@ screen:
   height: 768
 
 grid:
-  dim_grille: [6,7,2]
+  dim_grille: [10,10,2]
   force_full: False
 
 camera:
   cam_area: [[192,256], [576,768]]
-  cam_number: 1
+  cam_number:  1
+  refresh_rate: 2 # refresh each X frames
 
 button:
-  hand_area_1: [[326, 900], [376, 1000]]
-  hand_area_2: [[326, 30], [376, 80]]
-  hand_threshold_1: 2_500 # pxl area
-  hand_threshold_2: 2_000 # pxl area
-  cooldown: 2
+  hand_area_1: [[200, 920], [300, 1000]]
+  hand_area_2: [[200, 10], [300, 80]]
+
+  # increase if buttons trigger for nothing
+  hand_threshold_1: 300 # area (pxl*pxl)
+  hand_threshold_2: 300 # area (pxl*pxl)
+
+  cooldown: 4
 
 
 brick:
-  min_brick_size: 1_500.0 # pxl area
+  min_brick_size: 500.0 # pxl area
   max_brick_size: 20_000.0 # pxl area
 
 program:
   swap: True # swap between display panels
-  swap_time: 3
+  swap_time: 4
   test_model: True
+  text_color: [1, 1, 1] # rgb normalized
 
 color:
   # hue: name
-  -1: "Black"
-  -2: "Steel"
+  -1: "Air"
+  -2: "Air"
   60: "Yellow"
   340: "Magenta"
   200: "Cyan"
@@ -41,11 +46,11 @@ color:
 color_mat:
   # name: [conductivity, capacity, density, r_corrosion]
   #        W/(m*K),      J/(kg/K), kg/m^3
-  "Black":   [0.00, 2000, 600, 1]
+  "Air":     [0.1, 1000, 1.25, -1]
   "Blue":    [0.00, 2000, 600, .2]
   "Yellow":  [1.00, 2000, 600, .9]
-  "Magenta": [20.0, 500, 2600, .9]
-  "Cyan":    [0.02, 2000, 600, .3]
+  "Magenta": [10.0, 500, 2600, .9]
+  "Cyan":    [1.0, 2000, 600, .3]
   "Orange":  [0.00, 2000, 600, .9]
   "Red":     [0.00, 2000, 600, .9]
   "Green":   [0.00, 2000, 600, .9]

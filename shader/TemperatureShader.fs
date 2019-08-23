@@ -1,28 +1,36 @@
-#version 440
-#define MAX_SIZE 4000
-varying vec3 pos_fragment;
+#version 430
+
+in vec3 pos_fragment;
 
 uniform float brick_dim[2];
-uniform float grid_pos;
+uniform int grid_pos;
 uniform float Corrosion;
-uniform float T[MAX_SIZE];
+
+layout(std430, binding = 0) buffer  temp_buffer {
+  int T[];
+};
 uniform float step;
 uniform float border;
+
+out vec4 color;
+
 
 void main()
 {
     float y = 1 - pos_fragment.y;// coordonnée y du pixel entre 0 et 1
     float x = pos_fragment.x;// coordonnée x du pixel entre 0 et 1
-    int i = int(trunc(x * brick_dim[1]));
-    int j = int(trunc(y * brick_dim[0]));
+    int i = int((x * brick_dim[1]));
+    int j = int((y * brick_dim[0]));
     float temperature = 0;
 
-    int index = int(trunc(grid_pos + i + j * step));// + brick_dim[0]*j);
+    int index = int(trunc(grid_pos + i + j * step));
 
-    if (border == 1 || border == 3)
+//     Mixing colors
+
+    if ((border == 1 || border == 3) && T[index + 1] >= 0 && T[index + 1] < 2000)
     {
         float mix_y = T[index], mix_y_next = T[index+1];
-        if (border == 2 || border == 3)
+        if ((border == 2 || border == 3) && T[int(index + 1 + step)] >=0 && T[int(index + step)] >=0)
         {
             float ratio_y = mod(y * brick_dim[0], 1);
             mix_y = mix(T[index], T[int(index + step)], ratio_y);
@@ -37,7 +45,11 @@ void main()
     }
 
     float c = max(0, min(1, 1-Corrosion));
-    gl_FragColor = mix(vec4(0, 0, 1, 1), vec4(1, 0, 0, 1), max(0, (temperature - 293.0) / 1600.0));
-    bool condition = x > c;  // corrosive hole shape
-    gl_FragColor.a = condition ? 1 : 0.3;
+    //pseudo random
+    float random = fract(sin(dot(pos_fragment.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    color = mix(vec4(0, 0, 1, 1), vec4(1, 0, 0, 1), max(0, (temperature) / 1600.0));
+//    bool condition = x > c;  // corrosive hole shape
+    bool condition = (random > c || c == 0) || x < 0.01 || x > 0.99;//|| x > c;
+    color.a = condition ? 1 : 0;
+
 }
