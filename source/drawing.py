@@ -7,6 +7,7 @@ import cv2
 
 
 def draw_rectangle(x_s, y_s, w, h, r=1, g=1, b=1, a=1):
+    glDisable(GL_TEXTURE_2D)
     glPushMatrix()
     glColor4f(r, g, b, a)
     glTranslatef(x_s, y_s, 0)
@@ -60,7 +61,8 @@ def draw_rectangle_empty(x_s, y_s, w, h, r, g, b, thickness=0.2):
 
 
 def get_file_content(file):
-    content = open(file, 'r').read()
+    with open(file, 'r') as f:
+        content = f.read()
     return content
 
 
@@ -85,16 +87,13 @@ def glut_print(x, y, font, text, r, g, b):
 class TextureHandler:
     """ Handle texture for OpenGL """
 
-    def __init__(self) -> void:
+    def __init__(self, n) -> void:
         """ load fixed textures and prepare all textures location in OPENGL"""
-        self.texture_array = glGenTextures(4)
-        molten_steel_texture = cv2.imread("./texture/molten_steel_diff.png")
-        im = cv2.cvtColor(molten_steel_texture, cv2.COLOR_BGR2RGBA)
+        self.texture_array = glGenTextures(5)
 
-        self.bind_texture(0, None, Conf.height, Conf.width)
-        self.bind_texture(1, None, Conf.width, Conf.height)
-        self.bind_texture(2, im, im.shape[0], im.shape[1])
-        self.bind_texture(3, None, Conf.width, Conf.height)
+        for i in range(n):
+            self.bind_texture(i, None, Conf.width, Conf.height)
+
 
     def bind_texture(self, index: int, texture: np.ndarray or None, width: int, height: int) -> void:
         """ bind and create a texture for the first time in this loc"""

@@ -46,10 +46,10 @@ void main()
 
     float c = max(0, min(1, 1-Corrosion));
     //pseudo random
-    float random = fract(sin(dot(pos_fragment.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    float random = fract(sin(dot(pos_fragment.xy, vec2(12.9898,78.233)))*43758.5453123);
     color = mix(vec4(0, 0, 1, 1), vec4(1, 0, 0, 1), max(0, (temperature) / 1600.0));
 //    bool condition = x > c;  // corrosive hole shape
     bool condition = (random > c || c == 0) || x < 0.01 || x > 0.99;//|| x > c;
-    color.a = condition ? 1 : 0;
+    color = condition ? color : vec4(0,0,0,1);
 
 }

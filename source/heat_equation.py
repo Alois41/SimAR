@@ -1,3 +1,5 @@
+# https://github.com/worden341/heatequation
+
 import numpy as np
 
 

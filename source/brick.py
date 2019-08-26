@@ -15,6 +15,7 @@ class Brick:
             self.geometry, self.indexes = None, None
             self.indexes = indexes
             self.is_void = True
+            self.drowned = True
         else:
             self.material = BrickMaterial(color)
             self.geometry = BrickGeometry(box)
@@ -175,14 +176,19 @@ class BrickArray:
                     _conductivity[j, i] = material.conductivity
                     _capacity[j, i] = material.capacity
                     _density[j, i] = material.density
-                    if brick.drowned:
-                        _conductivity[j, i] = 20.0
-                        _capacity[j, i] = 500
-                        _density[j, i] = 2600
+                    if brick.is_void or brick.drowned:
+                        conductivity, capacity, density, _ = Conf.color_to_mat["Air"]
+                        _conductivity[j, i] = conductivity
+                        _capacity[j, i] = capacity
+                        _density[j, i] = density
 
                     # if there's liquid, set temp to liquid temp
-                    if liquid_array[..., 0][j, i] > 0.0:
-                        _temperature[j, i] = 1500
+                    if liquid_array[..., 0][j, i] > 0.2:
+                        _temperature[j, i] = 1600
+                        conductivity, capacity, density, _ = Conf.color_to_mat["Molten Steel"]
+                        _conductivity[j, i] = conductivity
+                        _capacity[j, i] = capacity
+                        _density[j, i] = density
 
                 else:
                     _conductivity[j, i] = 0
@@ -226,19 +232,33 @@ class BrickArray:
         for i in range(Conf.dim_grille[0]):
             for j in range(Conf.dim_grille[1]):
                 b = self.get(i, j)
+                # b.drowned = b.is_void
+
                 if b.drowned:
-                    indexes = (i-1, j), (i+1, j), (i, j-1), (i, j+1)
+                    indexes = (i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1)
                     for index in indexes:
                         b2 = self.get(index[0], index[1])
                         if b2 is not None and b2.material.is_broken:
                             b2.drowned = True
-                            b2.material = BrickMaterial(color=-2)
+                            b2.material = BrickMaterial(color=-1)
                             self.set(index[0], index[1], b2)
         # HEAT UPDATE
         if self.heq is not None:
             if heating:
                 # self.heq.temperature[0, 0] = 1500
                 # update corrosion
+
+                for brick in self.array.flatten():
+                    i, j = brick.indexes[0]
+                    neighbors = [self.get(i - 1, j), self.get(i + 1, j), self.get(i, j - 1), self.get(i, j + 1)]
+                    for n in neighbors:
+                        if n is not None:
+                            if n.drowned and np.nanmean(self.get_temp(*n.indexes[0])) > 500:
+                                brick.update_corrosion(self.heq.dt)
+                                if brick.material.health <= 0.0:
+                                    brick.material.is_broken = True
+                                    brick.material.break_mat()
+
                 for i in range(Conf.dim_grille[0]):
                     brick_i = self.get(i, 0)
                     if brick_i is not None:

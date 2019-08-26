@@ -3,7 +3,7 @@ screen:
   height: 768
 
 grid:
-  dim_grille: [10,10,2]
+  dim_grille: [5,7,2]
   force_full: False
 
 camera:
@@ -46,15 +46,16 @@ color:
 color_mat:
   # name: [conductivity, capacity, density, r_corrosion]
   #        W/(m*K),      J/(kg/K), kg/m^3
-  "Air":     [0.1, 1000, 1.25, -1]
+  "Air":     [0.1, 1000, 1.25, 0]
   "Blue":    [0.00, 2000, 600, .2]
   "Yellow":  [1.00, 2000, 600, .9]
-  "Magenta": [10.0, 500, 2600, .9]
-  "Cyan":    [1.0, 2000, 600, .3]
+  "Magenta": [5.0, 500, 1000, .9]
+  "Cyan":    [1.0, 500, 1000, .3]
   "Orange":  [0.00, 2000, 600, .9]
   "Red":     [0.00, 2000, 600, .9]
   "Green":   [0.00, 2000, 600, .9]
   "Steel":   [20.0, 2000, 600, 1]
+  "Molten Steel":   [20.0, 500, 600, 1]
 
 steel:
   temperature: 1600 # K

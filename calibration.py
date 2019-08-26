@@ -1,6 +1,7 @@
 from OpenGL.GL import *
 from OpenGL.GLUT import *
-from liquid_equation import *
+from source.liquid_equation import *
+from source.augmented_reality import AugmentedReality
 
 from OpenGL.GLU import *
 from source.configuration import Config as Conf, Globals as Glob
@@ -19,7 +20,6 @@ screen_number = 1
 sys.path += ['.']
 OpenGL.ERROR_ON_COPY = True
 
-
 # import warnings
 # warnings.simplefilter("error")
 
@@ -31,6 +31,7 @@ class MainProgram:
 
         # OpenGL setup
         glutInit(sys.argv)
+        glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION)
         glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
         glutInitWindowSize(Conf.width, Conf.height)
         glutInitWindowPosition(screen_number * 1366 + 10, 0)  # main window dim + 1
@@ -44,15 +45,17 @@ class MainProgram:
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
+
         self.animation_clock = None
+        self.lost_leak = False
 
         # Memory shared variables
-        self.q_activate = SimpleQueue()
+        self.q_activate, self.rst, self.lost = SimpleQueue(), SimpleQueue(), SimpleQueue()
         self.liquid_grid = Array(ctypes.c_double, (Conf.dim_grille[0] + 1) * Conf.dim_grille[1])
         self.liquid_im = Array(ctypes.c_double, 10 * (Conf.dim_grille[0] + 1) * 10 * Conf.dim_grille[1] * 4)
 
         # Liquid control Process
-        self.p_liquid = Liquid(self.liquid_im, self.q_activate, self.liquid_grid)
+        self.p_liquid = Liquid(self.liquid_im, self.q_activate, self.rst, self.lost, self.liquid_grid)
         self.p_liquid.daemon = True
         self.p_liquid.start()
 
@@ -62,20 +65,16 @@ class MainProgram:
 
         # execute OpenGL loop forever
         glutMainLoop()
+        print("end OPENGL")
 
     def idle(self):
         """ Opengl routine function, called each loop iteration"""
 
         Glob.delta_t = clock() - Glob.t_ref
         Glob.t_ref = clock()
-        if Glob.mode == 2:
-            # reset mode
-            Glob.mode = 0
-            if clock() - self.animation_clock > 2:
-                Glob.mode = 0
-            pass
 
-        else:
+
+        if Glob.mode !=2:
             # update frame from webcam
             self.augmented_reality.cam.take_frame()
 
@@ -91,19 +90,27 @@ class MainProgram:
                     Conf.t_chamber = Conf.temperature if (self.augmented_reality.buttonStart.is_triggered
                                                           and self.augmented_reality.buttonStart.number) > 0 \
                         else max(Conf.t_chamber - Conf.cooling_factor * Glob.delta_t, 293)
-                    Glob.brick_array.update()
+                    Glob.brick_array.update(not self.augmented_reality.buttonStart.is_ready()
+                                            and self.augmented_reality.buttonStart.number > 0)
 
                 else:
                     Glob.brick_array.update(not self.augmented_reality.buttonStart.is_ready()
                                             and self.augmented_reality.buttonStart.number > 0)
 
-                lost = self.p_liquid.test_loose() or Glob.brick_array.test_loose()
-                if (lost and self.augmented_reality.buttonStart.is_waiting) \
-                        or self.augmented_reality.buttonReset.is_triggered:
+                lost_struct = False  # Glob.brick_array.test_loose()
+                if not self.lost.empty():
+                    self.lost_leak = self.lost.get()
+
+                if (self.lost_leak or lost_struct) or self.augmented_reality.buttonReset.is_triggered:
                     print("reset")
                     if self.augmented_reality.buttonReset.is_triggered:
                         print("(from rst button)")
+                    elif self.lost_leak:
+                        print("(from liquid)")
+                    elif lost_struct:
+                        print("(from struct)")
 
+                    self.rst.put(True)
                     self.augmented_reality.buttonStart.is_triggered = False
                     Glob.t_ref, Glob.delta_t = clock(), 0
                     Glob.hand_text = None
@@ -117,8 +124,8 @@ class MainProgram:
                     Glob.mode = 2
                     self.animation_clock = clock()
                     self.augmented_reality.buttonStart.is_waiting = True
-                    time.sleep(1.5)
-                    self.augmented_reality.buttonStart.is_waiting = True
+
+                    self.lost_leak = False
 
             # update brick grid in liquid simulation
             if Glob.brick_array is not None:
@@ -144,13 +151,18 @@ class MainProgram:
 
         self.augmented_reality.render()
 
+        if Glob.mode == 2:
+            # reset mode
+            self.augmented_reality.lost_screen()
+
+            if clock() - self.animation_clock > 2:
+                Glob.mode = 0
+
         glutSwapBuffers()
 
     @staticmethod
     def reshape(w, h):
         """ OpenGl function, change windows property when window's size changes"""
-        w = max(1E-4, w)
-        h = max(1E-4, h)
         if h == 0:
             h = 1
         glViewport(0, 0, w, h)
@@ -170,15 +182,15 @@ class MainProgram:
             # kill program when escape is pressed
             self.p_liquid.terminate()
             self.p_liquid.join()
-            os._exit(1)
+            glutLeaveMainLoop()
 
 
 if __name__ == '__main__':
-    from source.augmented_reality import AugmentedReality
-    freeze_support()
+    freeze_support()  # needed for multiprocessing
     try:
-        Glob.debug = True
+        Conf.debug = True
         MainProgram()
     except Exception as e:
-        print(e)
-
+        raise e
+    finally:
+        print("Program closed")

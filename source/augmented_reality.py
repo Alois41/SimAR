@@ -10,6 +10,7 @@ from source.resources import Resources
 from multiprocessing import SimpleQueue
 import random
 
+# strings ressources for futur languages
 strings = Resources.strings['fr']
 
 
@@ -17,19 +18,25 @@ class AugmentedReality:
     """ Take and process webcam frames"""
 
     def __init__(self, width: int, height: int, q_activate: SimpleQueue, liquid_im, liquid_grid) -> void:
+
+        # Attributes from parameters
         self.width, self.liquid_height = width, height
         self.cam = Camera(width, height)
         self.q_activate = q_activate
-
-        self.triggered_start, self.triggered_reset = False, False
-        self.triggered_number = 0
-        self.wait_time = 1
-
         self.liquid_im = liquid_im
         self.liquid_grid = liquid_grid
 
-        self.tex_handler = TextureHandler()
+        # Other attributes
+        self.triggered_start, self.triggered_reset = False, False
+        self.triggered_number = 0
+        self.wait_time = 1
+        self.liquid_height = 0.0
+        self.clock_liquid = 0.0
 
+        # Create a texture handler with 5 different textures
+        self.tex_handler = TextureHandler(5)
+
+        # Create button Handler and start them for image detection
         self.buttonStart = HandButton(10, self.tex_handler, 3, Conf.hand_area_1, Conf.hand_threshold_1)
         self.buttonReset = HandButton(1, self.tex_handler, 1, Conf.hand_area_2, Conf.hand_threshold_2)
         self.buttonStart.daemon = True
@@ -38,13 +45,15 @@ class AugmentedReality:
         self.buttonReset.start()
         self.buttonReset.title = "RETOUR"
 
+        # Create a handler for every drawing functions
         self.draw_handler = DrawingHandler(self.tex_handler, q_activate, liquid_im)
 
+        # Create a class that will extract "bricks" from image
         self.brick_recognition = BrickRecognition(liquid_im)
-        self.liquid_height = 0.0
-        self.clock_liquid = 0.0
 
     def reset(self):
+        """ Reset program state"""
+
         self.triggered_start, self.triggered_reset = False, False
         self.triggered_number = 0
         self.wait_time = 1
@@ -58,7 +67,11 @@ class AugmentedReality:
         Glob.brick_array.reset()
 
     def render(self) -> void:
+        """ render the scene with OpenGL"""
+
         if Glob.frame is not None:
+
+            # Set button text
             if Glob.mode == 0:
                 self.buttonStart.title = "VALIDER"
             elif self.buttonStart.is_ready():
@@ -66,23 +79,23 @@ class AugmentedReality:
             else:
                 self.buttonStart.title = "%i" % self.buttonStart.remaining_time
 
-            self.draw_handler.draw_frame(Glob.frame)
-            y0, x0 = Conf.cam_area[0]
-            yf, xf = Conf.cam_area[1]
-
+            # Set liquid state from buttons
             poor_liquid = False
             if self.buttonStart.is_triggered and self.triggered_number > 0:
                 poor_liquid = True
 
-            # # make sure all liquid disappeared
-            # if not self.buttonStart.is_waiting and not self.buttonStart.is_triggered:
-            #     with self.liquid_im.get_lock():
-            #         arr = np.frombuffer(self.liquid_im.get_obj())
-            #         arr[:] = np.zeros(arr.shape)
+            # step 1 : draw background
+            self.draw_handler.draw_frame(Glob.frame)
 
+            y0, x0 = Conf.cam_area[0]
+            yf, xf = Conf.cam_area[1]
+            # step 2 : draw molten steel
             self.draw_handler.draw_molten_steel(x0, y0, xf - x0, yf - y0, 1, 1, 1, poor_liquid)
+
+            # step 3 : draw user interface
             self.draw_handler.draw_ui(self.buttonStart, self.buttonStart.number)
 
+            # step 4 : draw buttons interfaces, reset button depends on the mode
             self.buttonStart.draw()
             if Glob.mode == 1 and self.buttonStart.is_ready():
                 self.buttonReset.unpause()
@@ -91,8 +104,13 @@ class AugmentedReality:
                 self.buttonReset.pause()
 
     def check_buttons(self) -> void:
+        """ Update button image and read button state """
+
+        # Set image to the newest one
         self.buttonStart.image = self.cam.image_raw
         self.buttonReset.image = self.cam.image_raw
+
+        # Change mode with button state
         if Glob.mode == 0 and Glob.brick_array is not None:
             self.triggered_number = self.buttonStart.number
 
@@ -106,36 +124,27 @@ class AugmentedReality:
                 return
             pass
 
-        # self.triggered_start, new = self.buttonStart.detect_hand(self.cam.image_raw)
-        # if Glob.mode == 0 and new:
-        #     if Glob.brick_array.is_valid():
-        #         Glob.brick_array.init_heat_eq()
-        #         Glob.mode = 1
-        #     else:
-        #         strings['sub_title_build'] = "La grille n'est pas remplie"
-        # elif Glob.mode == 1:
-        #     if new:
-        #         self.triggered_number += 1
-        #
-        # self.triggered_reset, new = self.buttonReset.detect_hand(self.cam.image_raw)
-        # if self.triggered_reset:
-        #     self.triggered_number = 0
-        #     Glob.brick_array.reset()  # temperature reset
-        #     Glob.mode = 0
-
     def detect_brick(self):
+        """ Execute brick detection tools """
         image = self.brick_recognition.update_bricks(self.cam.image_raw.copy())
+
+        # if we are calibrating print brick map on the screen (upper left corner)
         if image is not None:
             if Glob.debug:
                 texture = cv2.resize(image, (Conf.width, Conf.height))
                 self.tex_handler.bind_texture(0, cv2.flip(texture, 0), Conf.width, Conf.height)
             Glob.frame = image
 
+    def lost_screen(self):
+        """ Draw a message on the screen """
+        self.draw_handler.draw_text_screen()
+
 
 class BrickRecognition:
     """ Detect bricks from webcam frame """
 
     def __init__(self, liquid_im):
+        # keep dynamic array in class
         self.liquid_im = liquid_im
         self.frame_count = 0
 
@@ -146,16 +155,20 @@ class BrickRecognition:
         # update each n frames
         if Glob.mode == 0 and self.frame_count % Conf.refresh_rate == 0:  # building mode
             image_raw = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGBA)  # convert to RGBA
-            image_raw[np.std(image_raw[:, :, :3], axis=2) < 12.0] = [255, 255, 255, 255]  # set almost white to white
             # image_raw = adjust_gamma(image_raw.copy(), 1 if calibration else 2)  # enhance gamma of the image
 
-            bricks, image = self.discretise_area(image_raw)
+            if False:  # futur work : no grid mode
+                bricks, image = self.discretise_area(image_raw)
+            else:
+                # Set almost white to white
+                image_raw[np.std(image_raw[:, :, :3], axis=2) < 12.0] = [255, 255, 255, 255]
+                contours, image = find_center_contours(image_raw)  # find contours in the center of the image
+                bricks = self.isolate_bricks(contours, image)  # detect bricks
 
-            # contours, image = find_center_contours(image_raw)  # find contours in the center of the image
-            # bricks = self.isolate_bricks(contours, image)  # detect bricks
-
+            # Make image opaque
             image[:, :, 3] = 255 * np.ones((image.shape[0], image.shape[1]))
 
+            # Initialise brick array if needed
             if Glob.brick_array is None or len(Glob.brick_array.array) == 0:
                 Glob.brick_array = BrickArray(bricks, self.liquid_im)
 
@@ -182,68 +195,71 @@ class BrickRecognition:
 
     @staticmethod
     def discretise_area(image):
+        """ not implemented yet, no grid mode """
 
-        blurred = cv2.GaussianBlur(image, (5, 5), 0)
-        thresh_rgb = blurred.copy()
+        raise NotImplementedError
 
-        # for each color channel
-        for index, channel in enumerate(cv2.split(thresh_rgb)):
-            # make channel binary with an adaptive threshold
-            thresh = cv2.adaptiveThreshold(channel, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 103, 8)
-            # Structure the channel with Rectangle shapes
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 10))
-            thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-
-            # merge channels
-            thresh_rgb[:, :, index] = thresh
-
-        # convert into Gray scale(luminance)
-        thresh_gray = cv2.cvtColor(thresh_rgb, cv2.COLOR_RGB2GRAY)
-        # zoom in the center
-        thresh_gray = zoom_center(thresh_gray)
-        image = zoom_center(image)
-        # invert black/white
-        thresh_gray = cv2.bitwise_not(thresh_gray)
-
-        kernel = np.ones((5, 5), np.uint8)
-        thresh_gray = cv2.erode(thresh_gray, kernel, iterations=10)
-
-        bricks = []
-
-        step_x = image.shape[1] / Conf.dim_grille[0]
-        step_y = image.shape[0] / Conf.dim_grille[1]
-
-        # import matplotlib.pyplot as plt
-        # plt.subplots(Conf.dim_grille[1], Conf.dim_grille[0])
-
-        image_hls = cv2.cvtColor(image.copy(), cv2.COLOR_RGB2HLS)
-
-        for x in range(Conf.dim_grille[0]):
-            for y in range(Conf.dim_grille[1]):
-                crop = image_hls[int(y * step_y):int((y + 1) * step_y),
-                       int(x * step_x):int((x + 1) * step_x)]
-                mean = 2 * np.mean(crop, axis=(0, 1))[0]
-
-                if mean > 20:
-                    colors = list(Conf.color_dict.keys())
-                    closest_colors = sorted(colors, key=lambda color: np.abs(color - mean))
-                    closest_color = closest_colors[0]
-
-                    b = Brick.new([[x * step_x, y * step_y], [step_x, step_y], 0], closest_color)
-                    bricks.append(b)
-
-                    c_rgb = cv2.cvtColor(np.uint8([[[0.5 * closest_color, 128, 255]]]), cv2.COLOR_HLS2RGB)[0][0]
-                    image = cv2.rectangle(image,
-                                          (int(x * step_x), int(y * step_y)),
-                                          (int((x + 1) * step_x), int((y + 1) * step_y)),
-                                          tuple([int(n) for n in c_rgb]), thickness=10)
-                    # cv2.putText(image, "%.2f" % mean, (int(x * step_x), int((y + .5) * step_y)),
-                    #             cv2.FONT_HERSHEY_SIMPLEX,
-                    #             1.5, (0, 0, 0), thickness=10, lineType=10)
-
-        # plt.show()
-
-        return bricks, image
+        # blurred = cv2.GaussianBlur(image, (5, 5), 0)
+        # thresh_rgb = blurred.copy()
+        #
+        # # for each color channel
+        # for index, channel in enumerate(cv2.split(thresh_rgb)):
+        #     # make channel binary with an adaptive threshold
+        #     thresh = cv2.adaptiveThreshold(channel, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 103, 8)
+        #     # Structure the channel with Rectangle shapes
+        #     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 10))
+        #     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        #
+        #     # merge channels
+        #     thresh_rgb[:, :, index] = thresh
+        #
+        # # convert into Gray scale(luminance)
+        # thresh_gray = cv2.cvtColor(thresh_rgb, cv2.COLOR_RGB2GRAY)
+        # # zoom in the center
+        # thresh_gray = zoom_center(thresh_gray)
+        # image = zoom_center(image)
+        # # invert black/white
+        # thresh_gray = cv2.bitwise_not(thresh_gray)
+        #
+        # kernel = np.ones((5, 5), np.uint8)
+        # thresh_gray = cv2.erode(thresh_gray, kernel, iterations=10)
+        #
+        # bricks = []
+        #
+        # step_x = image.shape[1] / Conf.dim_grille[0]
+        # step_y = image.shape[0] / Conf.dim_grille[1]
+        #
+        # # import matplotlib.pyplot as plt
+        # # plt.subplots(Conf.dim_grille[1], Conf.dim_grille[0])
+        #
+        # image_hls = cv2.cvtColor(image.copy(), cv2.COLOR_RGB2HLS)
+        #
+        # for x in range(Conf.dim_grille[0]):
+        #     for y in range(Conf.dim_grille[1]):
+        #         crop = image_hls[int(y * step_y):int((y + 1) * step_y),
+        #                int(x * step_x):int((x + 1) * step_x)]
+        #         mean = 2 * np.mean(crop, axis=(0, 1))[0]
+        #
+        #         if mean > 20:
+        #             colors = list(Conf.color_dict.keys())
+        #             closest_colors = sorted(colors, key=lambda color: np.abs(color - mean))
+        #             closest_color = closest_colors[0]
+        #
+        #             b = Brick.new([[x * step_x, y * step_y], [step_x, step_y], 0], closest_color)
+        #             bricks.append(b)
+        #
+        #             c_rgb = cv2.cvtColor(np.uint8([[[0.5 * closest_color, 128, 255]]]), cv2.COLOR_HLS2RGB)[0][0]
+        #             image = cv2.rectangle(image,
+        #                                   (int(x * step_x), int(y * step_y)),
+        #                                   (int((x + 1) * step_x), int((y + 1) * step_y)),
+        #                                   tuple([int(n) for n in c_rgb]), thickness=10)
+        #             # cv2.putText(image, "%.2f" % mean, (int(x * step_x), int((y + .5) * step_y)),
+        #             #             cv2.FONT_HERSHEY_SIMPLEX,
+        #             #             1.5, (0, 0, 0), thickness=10, lineType=10)
+        #
+        # # plt.show()
+        #
+        # return bricks, image
 
     @staticmethod
     def isolate_bricks(contours: list, image: np.ndarray) -> list:
@@ -336,7 +352,7 @@ class DrawingHandler:
                           r: float, g: float, b: float, active) -> void:
         """ draw "molten_steel" from a texture"""
 
-        draw_rectangle(x_s - 20, y_s - 10, w + 30, h + 10, 0.1, 0.1, 0.1)
+        draw_rectangle(x_s - 20, y_s - 10, w + 20, h + 10, 0.1, 0.1, 0.1)
         if Glob.mode == 0:
             draw_rectangle(x_s, y_s, w, h, 1, 1, 1)
 
@@ -394,10 +410,9 @@ class DrawingHandler:
                 t = b_xy.material.diffusivity * 1E6
                 if not b_xy.is_void:
                     color = b_xy.material.color
-                    draw_rectangle(x_s + c * step_x, y_s + l * step_y, step_x, step_y,
-                                   color[0], color[1], color[2])
+                    draw_rectangle(x_s + c * step_x, (Conf.dim_grille[1] - l - 1) * step_y, step_x, step_y, *color)
                 else:
-                    draw_rectangle(x_s + c * step_x, y_s + l * step_y, step_x, step_y, 0, 0, 0)
+                    draw_rectangle(x_s + c * step_x, (Conf.dim_grille[1] - l - 1) * step_y, step_x, step_y, 0, 0, 0)
 
                 if b_xy is not None:
                     if not b_xy.is_void:
@@ -405,8 +420,8 @@ class DrawingHandler:
                         tmp = list(dict_values.keys())
                         closest_value = sorted(tmp, key=lambda v: np.abs(v - t))
                         txt = dict_values[closest_value[0]]
-                        # glut_print(x_s + c * step_x + .5 * step_x - 2.5 * len(txt),
-                        #            y_s + l * step_y + .3 * step_y, GLUT_BITMAP_HELVETICA_18, txt, 1, 1, 1)
+                        glut_print(x_s + c * step_x + .5 * step_x - 2.5 * len(txt),
+                                   (Conf.dim_grille[1] - l - 1) * step_y + .3 * step_y, GLUT_BITMAP_HELVETICA_18, txt, 1, 1, 1)
 
     @staticmethod
     def draw_resistance_corr(x_s: int, y_s: int) -> void:
@@ -422,12 +437,11 @@ class DrawingHandler:
                 t = b_xy.material.r_cor if b_xy is not None else np.nan
                 if not np.isnan(t) and not b_xy.is_void:
                     color = b_xy.material.color
-                    draw_rectangle(x_s + c * step_x, y_s + l * step_y, step_x, step_y,
-                                   color[0], color[1], color[2])
+                    draw_rectangle(x_s + c * step_x, (Conf.dim_grille[1] - l - 1) * step_y, step_x, step_y, *color)
                 else:
-                    draw_rectangle(x_s + c * step_x, y_s + l * step_y, step_x, step_y, 0, 0, 0)
+                    draw_rectangle(x_s + c * step_x, (Conf.dim_grille[1] - l - 1) * step_y, step_x, step_y, 0, 0, 0)
 
-                if b_xy is not None:
+                if b_xy is not None and not b_xy.drowned and not b_xy.is_void:
                     if b_xy.material.r_cor != -1:
                         dict_values = {0: "- - -", 0.2: "- -", 0.4: "-", 0.6: "+", 0.8: "+ +", 1: "+ + +"}
                         tmp = list(dict_values.keys())
@@ -436,8 +450,8 @@ class DrawingHandler:
 
                         # txt = "%0.0f%%" % (100.0 * b_xy.material.r_cor)
 
-                        # glut_print(x_s + c * step_x + .5 * step_x - 2.5 * len(txt),
-                        #            y_s + l * step_y + .3 * step_y, GLUT_BITMAP_HELVETICA_18, txt, 1, 1, 1)
+                        glut_print(x_s + c * step_x + .5 * step_x - 2.5 * len(txt),
+                                   (Conf.dim_grille[1] - l - 1) * step_y + .3 * step_y, GLUT_BITMAP_HELVETICA_18, txt, 1, 1, 1)
 
     def draw_temperatures(self, x_s: int, y_s: int, bricks) -> void:
         glut_print(0, 100, GLUT_BITMAP_HELVETICA_18, "Temperatures", *Conf.text_color)
@@ -473,7 +487,7 @@ class DrawingHandler:
                         if index[1] < Conf.dim_grille[1] - 1:
                             border += 2
 
-                        self.shader_handler_brick.bind({"Corrosion": b_xy.material.health,
+                        self.shader_handler_brick.bind({"Corrosion": b_xy.material.health if i == 1 else 1,
                                                         "temp_buffer": temp_array.flatten(),
                                                         "brick_dim": [Glob.brick_array.step_x, Glob.brick_array.step_y],
                                                         "grid_pos": pos, "step": Glob.brick_array.nx,
@@ -571,7 +585,35 @@ class DrawingHandler:
             for i in range(Conf.dim_grille[0]):
                 for j in range(Conf.dim_grille[1]):
                     pass
-                    draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j, 0.5, 0.5, 0.5, 4)
+                    draw_rectangle_empty(x0 + i * step_i, y0 + j * step_j, step_i, step_j, 0.2, 0.2, 0.2, 2)
+
+    def draw_text_screen(self):
+
+        texture = np.zeros((Conf.height, Conf.width, 4), np.uint8)
+        texture[..., 3] = 128
+
+        text_1 = "Structure defaillante"
+        text_2 = "Quantite d'acier : %i tonne%s" % (self.q, 's' if self.q > 0 else '')
+        scale = 2
+        thickness = 5
+
+        textsize1 = cv2.getTextSize(text_1, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
+        textsize2 = cv2.getTextSize(text_2, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
+
+        textX_1 = (texture.shape[1] - textsize1[0]) // 2
+        textY_1 = (texture.shape[0] + textsize1[1]) // 2
+        texture = cv2.putText(texture, text_1, (textX_1, textY_1),
+                              cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255, 255), thickness=thickness, lineType=10)
+
+        textX_2 = (texture.shape[1] - textsize2[0]) // 2
+        textY_2 = (texture.shape[0] + textsize2[1]) // 2 + 2*textsize1[1]
+        texture = cv2.putText(texture, text_2, (textX_2, textY_2),
+                              cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255, 255), thickness=thickness, lineType=10)
+
+        glEnable(GL_TEXTURE_2D)
+        self.tex_handler.bind_texture(4, cv2.flip(texture, 0), Conf.width, Conf.height)
+        self.tex_handler.use_texture(4)
+        self.draw_texture(4, 0, 0, Conf.width, Conf.height)
 
 
 class Camera:
