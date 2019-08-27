@@ -1,7 +1,7 @@
 import cv2
 import imutils
 import numpy as np
-from source.configuration import Config as p
+from settings.configuration import Config as p
 
 
 def adjust_gamma(image, gamma=2.0):
@@ -19,14 +19,14 @@ def crop_zone(image, x0, y0, xf, yf):
     return image[int(y0):int(yf), int(x0):int(xf)]
 
 
-def zoom_center(image):
-    """ zoom in the center of the image"""
+def crop_cam_area(image):
+    """ crop to the cam area"""
     crop_img = image[p.cam_area[0][0]:p.cam_area[1][0], p.cam_area[0][1]:p.cam_area[1][1]]
     return imutils.resize(crop_img, width=image.shape[1])
 
 
-def find_center_contours(image):
-    """ find all the contours in the center of a given image"""
+def find_contours(image):
+    """ find all the contours in the image"""
 
     blurred = cv2.GaussianBlur(image, (5, 5), 0)
     thresh_rgb = blurred.copy()
@@ -45,8 +45,8 @@ def find_center_contours(image):
     # convert into Gray scale(luminance)
     thresh_gray = cv2.cvtColor(thresh_rgb, cv2.COLOR_RGB2GRAY)
     # zoom in the center
-    thresh_gray = zoom_center(thresh_gray)
-    image = zoom_center(image)
+    thresh_gray = crop_cam_area(thresh_gray)
+    image = crop_cam_area(image)
     # invert black/white
     thresh_gray = cv2.bitwise_not(thresh_gray)
 

@@ -1,14 +1,16 @@
+"""
+execute it to start the program with calibration tools displayed on screen
+"""
+
+
 from OpenGL.GL import *
 from OpenGL.GLUT import *
-from source.liquid_equation import *
-from source.augmented_reality import AugmentedReality
+from physics.liquid_equation import *
+from image_recognition.augmented_reality import AugmentedReality
 
 from OpenGL.GLU import *
-from source.configuration import Config as Conf, Globals as Glob
+from settings.configuration import Config as Conf, Globals as Glob
 import sys
-import os
-
-import time
 
 from multiprocessing import SimpleQueue, Array, freeze_support
 from OpenGL.arrays import numpymodule

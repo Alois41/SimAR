@@ -2,8 +2,7 @@ import cv2
 import numpy as np
 from time import clock
 from multiprocessing import Process, SimpleQueue
-import sys
-from source.configuration import Config as Conf
+from settings.configuration import Config as Conf
 
 GRAVITY = 9.81
 delta_t = .1

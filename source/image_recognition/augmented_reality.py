@@ -1,12 +1,12 @@
 import time
-from source.brick import Brick, BrickArray
+from image_recognition.brick import Brick, BrickArray
 from time import clock
-from source.configuration import Config as Conf, Globals as Glob
-from source.image_tools import *
-from source.drawing import *
-from source.hand_button import HandButton
+from settings.configuration import Globals as Glob
+from image_recognition.image_tools import *
+from image_recognition.drawing import *
+from image_recognition.hand_button import HandButton
 from OpenGL.GL import *
-from source.resources import Resources
+from settings.resources import Resources
 from multiprocessing import SimpleQueue
 import random
 
@@ -20,6 +20,7 @@ class AugmentedReality:
     def __init__(self, width: int, height: int, q_activate: SimpleQueue, liquid_im, liquid_grid) -> void:
 
         # Attributes from parameters
+
         self.width, self.liquid_height = width, height
         self.cam = Camera(width, height)
         self.q_activate = q_activate
@@ -37,6 +38,16 @@ class AugmentedReality:
         self.tex_handler = TextureHandler(5)
 
         # Create button Handler and start them for image detection
+        self.buttonStart, self.buttonReset = None, None
+        self.init_start_buttons()
+
+        # Create a handler for every drawing functions
+        self.draw_handler = DrawingHandler(self.tex_handler, q_activate, liquid_im)
+
+        # Create a class that will extract "bricks" from image
+        self.brick_recognition = BrickRecognition(liquid_im)
+
+    def init_start_buttons(self):
         self.buttonStart = HandButton(10, self.tex_handler, 3, Conf.hand_area_1, Conf.hand_threshold_1)
         self.buttonReset = HandButton(1, self.tex_handler, 1, Conf.hand_area_2, Conf.hand_threshold_2)
         self.buttonStart.daemon = True
@@ -44,12 +55,6 @@ class AugmentedReality:
         self.buttonStart.start()
         self.buttonReset.start()
         self.buttonReset.title = "RETOUR"
-
-        # Create a handler for every drawing functions
-        self.draw_handler = DrawingHandler(self.tex_handler, q_activate, liquid_im)
-
-        # Create a class that will extract "bricks" from image
-        self.brick_recognition = BrickRecognition(liquid_im)
 
     def reset(self):
         """ Reset program state"""
@@ -162,7 +167,7 @@ class BrickRecognition:
             else:
                 # Set almost white to white
                 image_raw[np.std(image_raw[:, :, :3], axis=2) < 12.0] = [255, 255, 255, 255]
-                contours, image = find_center_contours(image_raw)  # find contours in the center of the image
+                contours, image = find_contours(image_raw)  # find contours in the center of the image
                 bricks = self.isolate_bricks(contours, image)  # detect bricks
 
             # Make image opaque
@@ -592,7 +597,7 @@ class DrawingHandler:
         texture = np.zeros((Conf.height, Conf.width, 4), np.uint8)
         texture[..., 3] = 128
 
-        text_1 = "Structure defaillante"
+        text_1 = "Fin du test"
         text_2 = "Quantite d'acier : %i tonne%s" % (self.q, 's' if self.q > 0 else '')
         scale = 2
         thickness = 5

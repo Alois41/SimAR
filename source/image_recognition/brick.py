@@ -1,22 +1,24 @@
 from OpenGL.GLUT import *
 import numpy as np
 import cv2
-from source.configuration import Config as Conf
-from source.heat_equation import HeatEquation
+from settings.configuration import Config as Conf
+from physics.heat_equation import HeatEquation
 
 
 class Brick:
-
+    """  Represent an element of the grid """
     def __init__(self, box=None, color=None, indexes=None):
-        self.is_invalid = False
-        self.drowned = False
-        if color is None:
+        self.is_invalid = False   # True when this brick isn't on the grid anymore
+        self.drowned = False      # True when liquid can pass through it
+
+        # instantiate brick properties
+        if color is None:  # void brick
             self.material = BrickMaterial()
             self.geometry, self.indexes = None, None
             self.indexes = indexes
             self.is_void = True
             self.drowned = True
-        else:
+        else:   # true brick
             self.material = BrickMaterial(color)
             self.geometry = BrickGeometry(box)
             self.indexes = self.geometry.compute_indexes()
@@ -24,6 +26,7 @@ class Brick:
 
     @classmethod
     def void(cls, indexes):
+        """ declare a "void" brick, usefull in some functions but just "air" in simulation """
         return cls(indexes=indexes)
 
     @classmethod
@@ -31,23 +34,26 @@ class Brick:
         return cls(box, color)
 
     @staticmethod
-    def get_brick(brick_array, i, j, prev_brick=None):
+    def get_brick(brick_array, i: int, j: int, prev_brick=None):
         b_ij = next((b for b in brick_array if [i, j] in b.indexes), None)
         if prev_brick is not None:
             if prev_brick == b_ij:
                 return None
         return b_ij
 
-    def is_almost(self, b):
+    def is_almost(self, b) -> void:
+        """ brick comparison """
         if self.is_void or b.is_void:
             return False
         return self.geometry.compare(b.geometry) and np.array_equal(self.material.color_name, b.material.color)
 
-    def replace(self):
+    def replace(self) -> void:
+        """ make brick valid and reset its state"""
         self.is_invalid = False
         self.material.is_broken = False
 
-    def invalidate(self):
+    def invalidate(self) -> void:
+        """ make brick invalid to destroy it in the next 'clear_invalid' pass """
         self.is_invalid = True
 
     def update_corrosion(self, dt) -> void:
@@ -55,8 +61,9 @@ class Brick:
 
 
 class BrickGeometry:
+    """ Geometric properties of a brick"""
     def __init__(self, box):
-
+        # extract values of box, change angle to avoid bad behaviour in drawing
         if box[2] > -45:
             self.xStart, self.yStart = box[0]
             self.length, self.width = box[1]
@@ -67,28 +74,33 @@ class BrickGeometry:
             self.angle = box[2] + 90
 
     def compute_indexes(self):
+        """ compute indexes from brick position and grid parameters"""
         indexes = []
         x_index = int(((self.xStart + .5*self.width) / (Conf.width / Conf.dim_grille[0])))
         y_index = int(((self.yStart + .5*self.length) / (Conf.height / Conf.dim_grille[1])))
         indexes.append([x_index, y_index])
 
-        if self.length > 1.2 * (Conf.width / Conf.dim_grille[0]) and x_index < Conf.dim_grille[0] - 1:
-            # print("%i%i grande longueur %0.2f" % (x_index, y_index, self.angle))
-            indexes.append([x_index + 1, y_index])
-
-        if self.width > 1.2 * (Conf.height / Conf.dim_grille[1]) and y_index < Conf.dim_grille[1] - 1:
-            indexes.append([x_index, y_index + 1])
-            # print("%i%i grande largeur %0.2f" % (x_index, y_index, self.angle))
+        # # Deprecated atm
+        # if self.length > 1.2 * (Conf.width / Conf.dim_grille[0]) and x_index < Conf.dim_grille[0] - 1:
+        #     # print("%i%i grande longueur %0.2f" % (x_index, y_index, self.angle))
+        #     indexes.append([x_index + 1, y_index])
+        #
+        # if self.width > 1.2 * (Conf.height / Conf.dim_grille[1]) and y_index < Conf.dim_grille[1] - 1:
+        #     indexes.append([x_index, y_index + 1])
+        #     # print("%i%i grande largeur %0.2f" % (x_index, y_index, self.angle))
 
         return indexes
 
     def compare(self, b):
+        """ compare two brick positions"""
         value = np.sqrt(np.square(self.xStart - b.xStart) + np.square(self.yStart - b.yStart)
                         + np.square(self.angle - b.angle))
         return value < 100
 
 
 class BrickMaterial:
+    """ material properties of a brick"""
+
     def __init__(self, color=-1):
         self.color_name = Conf.color_dict[color]
         self.color = cv2.cvtColor(np.uint8([[[color / 2, 50, 255]]]), cv2.COLOR_HLS2RGB).flatten() / 255.0
@@ -102,14 +114,13 @@ class BrickMaterial:
 
     @property
     def diffusivity(self):
+        """ return a more trivial property """
         return self.conductivity / (self.capacity * self.density)
-
-    def break_mat(self):
-        self.conductivity, self.capacity, self.density = 20.0, 500, 2600
-        pass
 
 
 class BrickArray:
+    """ Manage all current bricks """
+
     def __init__(self, bricks, liquid_im):
         self.array = np.array([[None] * Conf.dim_grille[1]] * Conf.dim_grille[0])
         for i in range(Conf.dim_grille[0]):
@@ -142,12 +153,14 @@ class BrickArray:
         self.array = np.array([[None] * Conf.dim_grille[1]] * Conf.dim_grille[0])
 
     def invalidate(self) -> void:
+        """ make all bricks invalid until next detection"""
         for column in self.array:
             for brick in column:
                 if brick is not None:
                     brick.invalidate()
 
     def clear_invalid(self) -> void:
+        """ remove not detected bricks"""
         for column in self.array:
             for brick in column:
                 if brick is not None and brick.is_invalid:
@@ -156,16 +169,19 @@ class BrickArray:
                         self.set(index[0], index[1], Brick.void(brick.indexes))
 
     def update_eq(self):
+        """ update heat Equation with brick and Config"""
         _conductivity = np.ones((self.ny, self.nx))
         _density = 500 * np.ones((self.ny, self.nx))
         _capacity = 500 * np.ones((self.ny, self.nx))
         _temperature = self.heq.temperature
 
+        # Read liquid state from memory
         with self.liquid_im.get_lock():
             arr = np.frombuffer(self.liquid_im.get_obj())
             liquid_array = np.resize(arr, (10 * Conf.dim_grille[1], 10 * (Conf.dim_grille[0] + 1), 4))
             liquid_array = np.flip(liquid_array, 0)
 
+        # for each element, set parameters
         for i in range(self.nx):
             for j in range(self.ny):
                 index_i = i / (self.nx / Conf.dim_grille[0])
@@ -191,13 +207,16 @@ class BrickArray:
                         _density[j, i] = density
 
                 else:
-                    _conductivity[j, i] = 0
-                    _capacity[j, i] = 1
-                    _density[j, i] = 1
+                    conductivity, capacity, density, _ = Conf.color_to_mat["Air"]
+                    _conductivity[j, i] = conductivity
+                    _capacity[j, i] = capacity
+                    _density[j, i] = density
+
+        # Re-create the solver
         self.heq = HeatEquation(_temperature, self.dx, self.dy, _density, _conductivity, _capacity)
 
     def init_heat_eq(self):
-
+        """ instatiate heat equation solver"""
         _conductivity = np.ones((self.ny, self.nx))
         _density = 500 * np.ones((self.ny, self.nx))
         _capacity = 500 * np.ones((self.ny, self.nx))
@@ -219,7 +238,8 @@ class BrickArray:
         self.step_x = self.heq.nx / Conf.dim_grille[1]
         self.step_y = self.heq.ny / Conf.dim_grille[0]
 
-    def get_temp(self, i, j):
+    def get_temp(self, i, j) -> np.ndarray:
+        """ Get temperature of a brick """
         return np.flipud(self.T[int(j * self.step_x): int((j + 1) * self.step_x),
                          int(i * self.step_y): int((i + 1) * self.step_y)])
 
@@ -257,7 +277,6 @@ class BrickArray:
                                 brick.update_corrosion(self.heq.dt)
                                 if brick.material.health <= 0.0:
                                     brick.material.is_broken = True
-                                    brick.material.break_mat()
 
                 for i in range(Conf.dim_grille[0]):
                     brick_i = self.get(i, 0)
@@ -266,7 +285,6 @@ class BrickArray:
                             brick_i.update_corrosion(self.heq.dt)
                             if brick_i.material.health <= 0.0:
                                 brick_i.material.is_broken = True
-                                brick_i.material.break_mat()
                             break
                 # time step
                 speed = 10
@@ -277,6 +295,7 @@ class BrickArray:
         self.update_eq()
 
     def reset(self) -> void:
+        """ reset grid state"""
         self.T = 293.0 * np.zeros((self.ny, self.nx))
 
         with self.liquid_im.get_lock():
@@ -294,6 +313,7 @@ class BrickArray:
         self.init_heat_eq()
 
     def is_valid(self) -> bool:
+        """ if the Config force the grid tobe full, check for it"""
         if not Conf.force_full:
             return True
         for i in range(Conf.dim_grille[0]):
@@ -323,6 +343,9 @@ class BrickArray:
         return np.flip(grid, 1)
 
     def get_capacity(self):
+        """ """
+
+        # TODO : better volume approximation
         c = 1
         for b in self.array.flatten():
             if b.drowned:

@@ -1,9 +1,8 @@
 from OpenGL.GL import *
 from OpenGL.GL.shaders import *
 from OpenGL.GLUT import *
-from source.configuration import Config as Conf
+from settings.configuration import Config as Conf
 import numpy as np
-import cv2
 
 
 def draw_rectangle(x_s, y_s, w, h, r=1, g=1, b=1, a=1):

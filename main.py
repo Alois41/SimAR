@@ -1,14 +1,15 @@
+"""
+execute if to start the program
+"""
+
 from OpenGL.GL import *
 from OpenGL.GLUT import *
-from source.liquid_equation import *
-from source.augmented_reality import AugmentedReality
+from physics.liquid_equation import *
+from image_recognition.augmented_reality import AugmentedReality
 
 from OpenGL.GLU import *
-from source.configuration import Config as Conf, Globals as Glob
+from settings.configuration import Config as Conf, Globals as Glob
 import sys
-import os
-
-import time
 
 from multiprocessing import SimpleQueue, Array, freeze_support
 from OpenGL.arrays import numpymodule
@@ -29,6 +30,27 @@ class MainProgram:
 
     def __init__(self):
 
+        self.init_opengl()
+
+        self.animation_clock = None
+        self.lost_leak = False
+        self.p_liquid = None
+
+        # Memory shared variables
+        self.q_activate, self.rst, self.lost = SimpleQueue(), SimpleQueue(), SimpleQueue()
+        self.liquid_grid = Array(ctypes.c_double, (Conf.dim_grille[0] + 1) * Conf.dim_grille[1])
+        self.liquid_im = Array(ctypes.c_double, 10 * (Conf.dim_grille[0] + 1) * 10 * Conf.dim_grille[1] * 4)
+
+        self.run_liquid_process()
+
+        # Main utility class
+        self.augmented_reality = AugmentedReality(Conf.width, Conf.height, self.q_activate,
+                                                  self.liquid_im, self.liquid_grid)
+
+        # execute OpenGL loop forever
+        self.loop()
+
+    def init_opengl(self):
         # OpenGL setup
         glutInit(sys.argv)
         glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION)
@@ -45,26 +67,11 @@ class MainProgram:
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        self.animation_clock = None
-        self.lost_leak = False
-
-        # Memory shared variables
-        self.q_activate, self.rst, self.lost = SimpleQueue(), SimpleQueue(), SimpleQueue()
-        self.liquid_grid = Array(ctypes.c_double, (Conf.dim_grille[0] + 1) * Conf.dim_grille[1])
-        self.liquid_im = Array(ctypes.c_double, 10 * (Conf.dim_grille[0] + 1) * 10 * Conf.dim_grille[1] * 4)
-
+    def run_liquid_process(self):
         # Liquid control Process
         self.p_liquid = Liquid(self.liquid_im, self.q_activate, self.rst, self.lost, self.liquid_grid)
         self.p_liquid.daemon = True
         self.p_liquid.start()
-
-        # Main utility class
-        self.augmented_reality = AugmentedReality(Conf.width, Conf.height,
-                                                  self.q_activate, self.liquid_im, self.liquid_grid)
-
-        # execute OpenGL loop forever
-        glutMainLoop()
-        print("end OPENGL")
 
     def idle(self):
         """ Opengl routine function, called each loop iteration"""
@@ -182,6 +189,11 @@ class MainProgram:
             self.p_liquid.terminate()
             self.p_liquid.join()
             glutLeaveMainLoop()
+
+    def loop(self):
+        """ in case we handle the loop differently """
+
+        glutMainLoop()  # OpenGL loop, handle idle/display/reshape/keyboard calls
 
 
 if __name__ == '__main__':
