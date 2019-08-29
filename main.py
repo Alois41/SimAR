@@ -56,7 +56,7 @@ class MainProgram:
         glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION)
         glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
         glutInitWindowSize(Conf.width, Conf.height)
-        glutInitWindowPosition(screen_number * 1366 + 10, 0)  # main window dim + 1
+        glutInitWindowPosition(screen_number * 1366 , 0)  # main window dim + 1
         glutCreateWindow("Poche AR")
         glutFullScreen()
         glClearColor(0.0, 0.0, 0.0, 1.0)
@@ -184,11 +184,20 @@ class MainProgram:
 
     def keyboard(self, key, x, y):
         """ Opengl function, add action to keyboard input"""
+
+        print("key_code =%s" % key)
+
         if key == b'\x1b':
             # kill program when escape is pressed
             self.p_liquid.terminate()
             self.p_liquid.join()
             glutLeaveMainLoop()
+
+        if key == b'd':
+            # change debug mode with d key
+            Glob.debug = not Glob.debug
+
+
 
     def loop(self):
         """ in case we handle the loop differently """

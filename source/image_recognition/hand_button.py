@@ -36,8 +36,9 @@ class HandButton(Thread):
 
         y0, x0 = self.hand_area[0]
         yf, xf = self.hand_area[1]
-        if self.tex_handler is not None:
-            self.tex_handler.bind_texture(self.tex_loc, None, xf - x0, yf - y0)
+        # if self.tex_handler is not None:
+        #     glEnable(GL_TEXTURE_2D)
+        #     self.tex_handler.bind_texture(self.tex_loc, None, Conf.width, Conf.height)
 
         self.image = None
 
@@ -99,8 +100,11 @@ class HandButton(Thread):
                 triggered = True
             cv2.fillPoly(crop, pts=[c], color=(255, 0, 0, 255))
 
-        # if self.tex_handler is not None:
-        #     self.tex_handler.bind_update_texture(self.tex_loc, cv2.flip(crop, 0), xf - x0, yf - y0)
+        y0, x0 = self.hand_area[0]
+        yf, xf = self.hand_area[1]
+        if self.tex_handler is not None:
+            glEnable(GL_TEXTURE_2D)
+            self.tex_handler.bind_texture(self.tex_loc, cv2.flip(crop, 0), Conf.width, Conf.height)
 
         return triggered
 

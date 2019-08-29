@@ -38,7 +38,7 @@
   ('main',
    'D:\\Documents\\Lamé\\src\\AR-Python\\Camera recognition\\main.py',
    'PYSOURCE'),
-  ('run.exe.manifest',
+  ('AcierRA.exe.manifest',
    'D:\\Documents\\Lamé\\src\\AR-Python\\Camera '
    'recognition\\build\\main\\main.exe.manifest',
    'BINARY')],

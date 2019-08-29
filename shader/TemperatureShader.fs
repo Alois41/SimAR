@@ -50,6 +50,6 @@ void main()
     color = mix(vec4(0, 0, 1, 1), vec4(1, 0, 0, 1), max(0, (temperature) / 1600.0));
 //    bool condition = x > c;  // corrosive hole shape
     bool condition = (random > c || c == 0) || x < 0.01 || x > 0.99;//|| x > c;
-    color = condition ? color : vec4(0,0,0,1);
+    color = condition ? color : vec4(0.1, 0.1, 0.1, 1);
 
 }

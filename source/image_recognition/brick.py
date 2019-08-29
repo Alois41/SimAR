@@ -143,7 +143,10 @@ class BrickArray:
         self.liquid_im = liquid_im
 
     def get(self, i: int, j: int) -> Brick:
-        return self.array[i][j] if 0 <= i < Conf.dim_grille[0] and 0 <= j < Conf.dim_grille[1] else None
+        try:
+            return self.array[i][j]
+        except IndexError:
+            return None
 
     def set(self, i: int, j: int, value: Brick or None) -> void:
         i, j = min(Conf.dim_grille[0]-1, i), min(Conf.dim_grille[1]-1, j)
@@ -182,11 +185,17 @@ class BrickArray:
             liquid_array = np.flip(liquid_array, 0)
 
         # for each element, set parameters
+        index_i, index_j = None, None
+        prev_index_i, prev_index_j = None, None
+        brick = None
         for i in range(self.nx):
             for j in range(self.ny):
-                index_i = i / (self.nx / Conf.dim_grille[0])
-                index_j = j / (self.ny / Conf.dim_grille[1])
-                brick = self.get(int(index_i), int(index_j))
+                index_i = int(i / (self.nx / Conf.dim_grille[0]))
+                index_j = int(j / (self.ny / Conf.dim_grille[1]))
+                if index_i != prev_index_i or index_j != prev_index_j:
+                    brick = self.get(index_i, index_j)
+                    prev_index_i, prev_index_j = index_i, index_j
+
                 if brick is not None:
                     material = brick.material
                     _conductivity[j, i] = material.conductivity
@@ -220,11 +229,16 @@ class BrickArray:
         _conductivity = np.ones((self.ny, self.nx))
         _density = 500 * np.ones((self.ny, self.nx))
         _capacity = 500 * np.ones((self.ny, self.nx))
+        brick = None
+        prev_index_i, prev_index_j = None, None
         for i in range(self.nx):
             for j in range(self.ny):
-                index_i = i / (self.nx / Conf.dim_grille[0])
-                index_j = j / (self.ny / Conf.dim_grille[1])
-                brick = self.get(int(index_i), int(index_j))
+                index_i = int(i / (self.nx / Conf.dim_grille[0]))
+                index_j = int(j / (self.ny / Conf.dim_grille[1]))
+                if index_i != prev_index_i or index_j != prev_index_j:
+                    brick = self.get(index_i, index_j)
+                    prev_index_i, prev_index_j = index_i, index_j
+
                 if brick is not None:
                     material = brick.material
                     _conductivity[j, i] = material.conductivity
@@ -262,6 +276,7 @@ class BrickArray:
                             b2.drowned = True
                             b2.material = BrickMaterial(color=-1)
                             self.set(index[0], index[1], b2)
+                            continue
         # HEAT UPDATE
         if self.heq is not None:
             if heating:
@@ -273,10 +288,11 @@ class BrickArray:
                     neighbors = [self.get(i - 1, j), self.get(i + 1, j), self.get(i, j - 1), self.get(i, j + 1)]
                     for n in neighbors:
                         if n is not None:
-                            if n.drowned and np.nanmean(self.get_temp(*n.indexes[0])) > 500:
-                                brick.update_corrosion(self.heq.dt)
-                                if brick.material.health <= 0.0:
-                                    brick.material.is_broken = True
+                            if len(self.get_temp(*n.indexes[0])) > 0:
+                                if n.drowned and np.nanmean(self.get_temp(*n.indexes[0])) > 500:
+                                    brick.update_corrosion(self.heq.dt)
+                                    if brick.material.health <= 0.0:
+                                        brick.material.is_broken = True
 
                 for i in range(Conf.dim_grille[0]):
                     brick_i = self.get(i, 0)
@@ -345,9 +361,9 @@ class BrickArray:
     def get_capacity(self):
         """ """
 
-        # TODO : better volume approximation
-        c = 1
-        for b in self.array.flatten():
-            if b.drowned:
-                c += 1
+        # Read liquid state from memory
+        with self.liquid_im.get_lock():
+            arr = np.frombuffer(self.liquid_im.get_obj())
+            c = len(arr[arr > 0.0])
+
         return c

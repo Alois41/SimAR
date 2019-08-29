@@ -88,11 +88,10 @@ class TextureHandler:
 
     def __init__(self, n) -> void:
         """ load fixed textures and prepare all textures location in OPENGL"""
-        self.texture_array = glGenTextures(5)
+        self.texture_array = glGenTextures(n)
 
         for i in range(n):
             self.bind_texture(i, None, Conf.width, Conf.height)
-
 
     def bind_texture(self, index: int, texture: np.ndarray or None, width: int, height: int) -> void:
         """ bind and create a texture for the first time in this loc"""
