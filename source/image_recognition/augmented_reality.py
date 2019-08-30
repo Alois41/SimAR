@@ -1,12 +1,12 @@
 import time
-from image_recognition.brick import Brick, BrickArray
+from source.image_recognition.brick import Brick, BrickArray
 from time import clock
-from settings.configuration import Globals as Glob
-from image_recognition.image_tools import *
-from image_recognition.drawing import *
-from image_recognition.hand_button import HandButton
+from source.settings.configuration import Globals as Glob
+from source.image_recognition.image_tools import *
+from source.image_recognition.drawing import *
+from source.image_recognition.hand_button import HandButton
 from OpenGL.GL import *
-from settings.resources import Resources
+from source.settings.resources import Resources
 from multiprocessing import SimpleQueue
 import random
 
@@ -29,10 +29,11 @@ class AugmentedReality:
 
         # Other attributes
         self.triggered_start, self.triggered_reset = False, False
-        self.triggered_number = 0
         self.wait_time = 1
         self.liquid_height = 0.0
         self.clock_liquid = 0.0
+        self.number = -1
+        self.new = False
 
         # Create a texture handler with 6 different textures
         self.tex_handler = TextureHandler(6)
@@ -48,7 +49,7 @@ class AugmentedReality:
         self.init_start_buttons()
 
     def init_start_buttons(self):
-        self.buttonStart = HandButton(10, None, 3, Conf.hand_area_1, Conf.hand_threshold_1)
+        self.buttonStart = HandButton(0, None, 3, Conf.hand_area_1, Conf.hand_threshold_1)
         self.buttonReset = HandButton(1, None, 1, Conf.hand_area_2, Conf.hand_threshold_2)
         self.buttonStart.daemon = True
         self.buttonReset.daemon = True
@@ -61,16 +62,12 @@ class AugmentedReality:
 
         if self.buttonStart.number > self.draw_handler.previous_number:
             self.draw_handler.previous_number = self.buttonStart.number
-            self.draw_handler.q += Glob.brick_array.get_capacity()
 
         self.triggered_start, self.triggered_reset = False, False
-        self.triggered_number = 0
         self.wait_time = 1
 
-        self.draw_handler = DrawingHandler(self.tex_handler, self.q_activate, self.liquid_im)
+        # self.draw_handler = DrawingHandler(self.tex_handler, self.q_activate, self.liquid_im)
         self.brick_recognition = BrickRecognition(self.liquid_im)
-        self.liquid_height = 0.0
-        self.clock_liquid = 0.0
 
         self.buttonReset.is_triggered, self.buttonReset.is_waiting = False, False
         Glob.brick_array.reset()
@@ -79,18 +76,24 @@ class AugmentedReality:
         """ render the scene with OpenGL"""
 
         if Glob.frame is not None:
-
             # Set button text
             if Glob.mode == 0:
+                self.draw_handler.q = 0.0
+                self.number = -1
                 self.buttonStart.title = "VALIDER"
             elif self.buttonStart.is_ready():
                 self.buttonStart.title = "CONTINUER"
             else:
                 self.buttonStart.title = "%i" % self.buttonStart.remaining_time
 
+            if self.number == -1:
+                self.buttonStart.wait_time = 1
+            else:
+                self.buttonStart.wait_time = 10
+
             # Set liquid state from buttons
             poor_liquid = False
-            if self.buttonStart.is_triggered and self.triggered_number > 0:
+            if self.buttonStart.is_triggered and self.number >= 0:
                 poor_liquid = True
 
             # step 1 : draw background
@@ -102,15 +105,20 @@ class AugmentedReality:
             self.draw_handler.draw_molten_steel(x0, y0, xf - x0, yf - y0, 1, 1, 1, poor_liquid)
 
             # step 3 : draw user interface
-            self.draw_handler.draw_ui(self.buttonStart, self.buttonStart.number)
+            self.draw_handler.draw_ui(start_button=self.buttonStart, number=max(0, self.number))
 
             # step 4 : draw buttons interfaces, reset button depends on the mode
             self.buttonStart.draw()
             if Glob.mode == 1 and self.buttonStart.is_ready():
+                if self.new:
+                    self.number += 1
+                    self.draw_handler.q += Glob.brick_array.current_steel_volume()
+                    self.new = False
                 self.buttonReset.unpause()
                 self.buttonReset.draw()
             else:
                 self.buttonReset.pause()
+                self.new = True
 
     def check_buttons(self) -> void:
         """ Update button image and read button state """
@@ -141,12 +149,19 @@ class AugmentedReality:
         if image_1 is not None:
             if Glob.debug:
                 texture = cv2.resize(image_1, (Conf.width, Conf.height))
+                mask = np.zeros(texture.shape, dtype=np.uint8)
                 grid_color = (0, 255, 0, 255)
                 start_color = (0, 0, 255, 255)
                 reset_color = (255, 0, 0, 255)
-                texture[Conf.cam_area[0][0]:Conf.cam_area[1][0], Conf.cam_area[0][1]:Conf.cam_area[1][1]] = grid_color
-                texture[Conf.hand_area_1[0][0]:Conf.hand_area_1[1][0], Conf.hand_area_1[0][1]:Conf.hand_area_1[1][1]] = start_color
-                texture[Conf.hand_area_2[0][0]:Conf.hand_area_2[1][0], Conf.hand_area_2[0][1]:Conf.hand_area_2[1][1]] = reset_color
+                mask[Conf.cam_area[0][0]:Conf.cam_area[1][0],
+                     Conf.cam_area[0][1]:Conf.cam_area[1][1]] = grid_color
+                mask[Conf.hand_area_1[0][0]:Conf.hand_area_1[1][0],
+                     Conf.hand_area_1[0][1]:Conf.hand_area_1[1][1]] = start_color
+                mask[Conf.hand_area_2[0][0]:Conf.hand_area_2[1][0],
+                     Conf.hand_area_2[0][1]:Conf.hand_area_2[1][1]] = reset_color
+
+                texture = cv2.addWeighted(texture, 0.75, mask, 0.25, 0)
+                # texture = np.mean([texture, mask], axis=0, dtype=np.uint8)
                 self.tex_handler.bind_texture(0, cv2.flip(texture, 0), Conf.width, Conf.height)
 
                 texture = cv2.resize(image_2, (Conf.width, Conf.height))
@@ -362,7 +377,7 @@ class DrawingHandler:
 
         self.steel_flow_dir_x, self.steel_flow_dir_y = 1, 1
         self.shader_clock = clock()
-        self.q = 0
+        self.q, self.old_q = 0, 0
         self.previous_number = 0
 
         k_factor = 3
@@ -372,20 +387,9 @@ class DrawingHandler:
                           r: float, g: float, b: float, active) -> void:
         """ draw "molten_steel" from a texture"""
 
-        draw_rectangle(x_s - 20, y_s - 10, w + 20, h + 10, 0.1, 0.1, 0.1)
+        draw_rectangle(x_s - 20, y_s, w + 20, h, 0.1, 0.1, 0.1)
         if Glob.mode == 0:
             draw_rectangle(x_s, y_s, w, h, 1, 1, 1)
-
-        # load shader
-        delta_t = clock() - self.shader_clock
-        # if random.random() > .999:
-        #     self.steel_flow_dir_x *= -1
-        # if random.random() > .999:
-        #     self.steel_flow_dir_y *= -1
-
-        self.offset_x += self.steel_flow_dir_x * random.random() * delta_t * 0.005
-        self.offset_y += self.steel_flow_dir_y * random.random() * delta_t * 0.005
-        self.shader_clock = clock()
 
         # self.shader_handler_molten_steel.bind(data={"myTexture": None, "offset_x": self.offset_x,
         #                                             "offset_y": self.offset_y, "delta_t": delta_t, "height": 0})
@@ -400,6 +404,7 @@ class DrawingHandler:
         if Glob.mode == 1:
             image = np.reshape(self.liquid_image.copy(), (10 * Conf.dim_grille[1], 10 * (Conf.dim_grille[0] + 1), 4))
 
+            # smooth water image
             image[:, :, :] = cv2.filter2D(image[:, :, :], -1, self.kernel)
             image = cv2.flip(image, 0)
 
@@ -441,6 +446,38 @@ class DrawingHandler:
                         closest_value = sorted(tmp, key=lambda v: np.abs(v - t))
                         txt = dict_values[closest_value[0]]
                         glut_print(x_s + c * step_x + .5 * step_x - 2.5 * len(txt),
+                                   (Conf.dim_grille[1] - l - 1) * step_y + .3 * step_y, GLUT_BITMAP_HELVETICA_18, txt,
+                                   1, 1, 1)
+
+    @staticmethod
+    def draw_thermal_diffusivity_corr(x_s: int, y_s: int) -> void:
+        glut_print(0, 100, GLUT_BITMAP_HELVETICA_18, "Resistances", *Conf.text_color)
+        glut_print(0, 80, GLUT_BITMAP_HELVETICA_18, "thermique / corrosion", *Conf.text_color)
+        y0, x0 = Conf.cam_area[0]
+        yf, xf = Conf.cam_area[1]
+        step_x = (xf - x0) / Conf.dim_grille[0]
+        step_y = (y0 - 10) / Conf.dim_grille[1]
+        for c in range(Conf.dim_grille[0]):
+            for l in range(Conf.dim_grille[1]):
+                b_xy = Glob.brick_array.get(c, l)
+                r_diffus = b_xy.material.diffusivity * 1E6
+                if not b_xy.is_void:
+                    color = b_xy.material.color
+                    draw_rectangle(x_s + c * step_x, (Conf.dim_grille[1] - l - 1) * step_y, step_x, step_y, *color)
+                else:
+                    draw_rectangle(x_s + c * step_x, (Conf.dim_grille[1] - l - 1) * step_y, step_x, step_y, 0, 0, 0)
+
+                if b_xy is not None:
+                    if not b_xy.is_void:
+                        dict_values = {0: "+ + +", 1.2: " + + ", 2.4: "  +  ", 3.6: "  -  ", 4.8: " - - ", 6: "- - -"}
+                        tmp = list(dict_values.keys())
+                        closest_value = sorted(tmp, key=lambda v: np.abs(v - r_diffus))
+                        txt = dict_values[closest_value[0]]
+                        dict_values = {0: "- - -", 0.2: " - - ", 0.4: "  -  ", 0.6: "  +  ", 0.8: " + + ", 1: "+ + +"}
+                        tmp = list(dict_values.keys())
+                        closest_value = sorted(tmp, key=lambda v: np.abs(v - b_xy.material.r_cor))
+                        txt += " / " + dict_values[closest_value[0]]
+                        glut_print(x_s + c * step_x + .5 * step_x - 3 * len(txt),
                                    (Conf.dim_grille[1] - l - 1) * step_y + .3 * step_y, GLUT_BITMAP_HELVETICA_18, txt,
                                    1, 1, 1)
 
@@ -564,23 +601,27 @@ class DrawingHandler:
         subtitle = strings['sub_title_build']
         if Glob.brick_array is not None:
             if Glob.mode == 0:
-                if clock() % (2 * Conf.swap_time) <= Conf.swap_time:
-                    self.draw_thermal_diffusivity(Conf.cam_area[0][1], 0)
+                if Conf.swap:
+                    if clock() % (2 * Conf.swap_time) <= Conf.swap_time:
+                        self.draw_thermal_diffusivity(Conf.cam_area[0][1], 0)
+                    else:
+                        self.draw_resistance_corr(Conf.cam_area[0][1], 0)
                 else:
-                    self.draw_resistance_corr(Conf.cam_area[0][1], 0)
+                    self.draw_thermal_diffusivity_corr(Conf.cam_area[0][1], 0)
 
             else:
-                self.draw_temperatures(Conf.cam_area[0][1], 0, Glob.brick_array)
-                if start_button.is_ready():
-                    title = strings['title_test']
-                    subtitle = strings['sub_title_test1i'] % number
-                    subtitle += "   Quantité d'acier: %i tonne%s" % (self.q, "s" if self.q > 1 else "")
-                elif start_button.is_triggered:
-                    title = "Coulée en cours"
-                    subtitle = ""
-                else:
-                    title = "Evacuation de l'acier liquide"
-                    subtitle = ""
+                if number != -1:
+                    self.draw_temperatures(Conf.cam_area[0][1], 0, Glob.brick_array)
+                    if start_button.is_ready():
+                        title = strings['title_test']
+                        subtitle = strings['sub_title_test1i'] % number
+                        subtitle += "   Quantité d'acier: %0.2f tonne%s" % (self.q, "s" if self.q > 1 else "")
+                    elif start_button.is_triggered:
+                        title = "Coulée en cours"
+                        subtitle = ""
+                    else:
+                        title = "Evacuation de l'acier liquide"
+                        subtitle = ""
 
         # glut_print(x_start, Conf.height - 30, GLUT_BITMAP_HELVETICA_18,
         #            title + "    %0.0f fps" % (1 / Glob.delta_t), *Conf.text_color)
@@ -596,7 +637,8 @@ class DrawingHandler:
             ratio = .25, .2
             glEnable(GL_TEXTURE_2D)
             self.draw_texture(0, 0, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height)
-            self.draw_texture(5, (1 - ratio[0]) * Conf.width, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width, ratio[1] * Conf.height)
+            self.draw_texture(5, (1 - ratio[0]) * Conf.width, (1 - ratio[1]) * Conf.height, ratio[0] * Conf.width,
+                              ratio[1] * Conf.height)
 
         # draw grid
         if Glob.mode == 0:
@@ -612,8 +654,12 @@ class DrawingHandler:
         texture = np.zeros((Conf.height, Conf.width, 4), np.uint8)
         texture[..., 3] = 240
 
+        if self.q != 0:
+            self.old_q = self.q
+            self.q = 0
+
         text_1 = "Fin du test"
-        text_2 = "Quantite d'acier : %i tonne%s" % (self.q, 's' if self.q > 1 else '')
+        text_2 = "Quantite d'acier : %0.2f tonne%s" % (self.old_q, 's' if self.old_q > 1 else '')
         scale = 2
         thickness = 5
 

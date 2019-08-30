@@ -12,7 +12,7 @@ camera:
   refresh_rate: 1 # refresh each X frames
 
 button:
-  hand_area_1: [[500, 920], [600, 1000]]
+  hand_area_1: [[400, 920], [500, 1000]]
   hand_area_2: [[200, 10], [300, 80]]
 
   # increase if buttons trigger for nothing
@@ -27,7 +27,7 @@ brick:
   max_brick_size: 2000_000.0 # pxl area
 
 program:
-  swap: True # swap between display panels
+  swap: False # swap between display panels or show both
   swap_time: 4
   test_model: True
   text_color: [1, 1, 1] # rgb normalized
@@ -35,7 +35,6 @@ program:
 color:
   # hue: name
   -1: "Air"
-  -2: "Air"
   60: "Yellow"
   340: "Magenta"
   200: "Cyan"

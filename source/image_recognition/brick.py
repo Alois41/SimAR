@@ -1,8 +1,9 @@
 from OpenGL.GLUT import *
 import numpy as np
 import cv2
-from settings.configuration import Config as Conf
-from physics.heat_equation import HeatEquation
+from source.settings.configuration import Config as Conf
+from source.physics.heat_equation import HeatEquation
+from source.physics.corrosion_equation import update_corrosion
 
 
 class Brick:
@@ -110,7 +111,7 @@ class BrickMaterial:
         self.T = [0]  # °K
 
     def update_corrosion(self, dt):
-        self.health = max(0.0, self.health - .1 * dt * (1.0 - self.r_cor))
+        self.health = update_corrosion(self.health, dt, self.r_cor)
 
     @property
     def diffusivity(self):
@@ -139,6 +140,7 @@ class BrickArray:
         self.sim_time = 0  # s
         self.heq = None
         self.step_x, self.step_y = 0, 0
+        self.quantity = 0
 
         self.liquid_im = liquid_im
 
@@ -289,7 +291,7 @@ class BrickArray:
                     for n in neighbors:
                         if n is not None:
                             if len(self.get_temp(*n.indexes[0])) > 0:
-                                if n.drowned and np.nanmean(self.get_temp(*n.indexes[0])) > 500:
+                                if n.drowned and np.nanmax(self.get_temp(*n.indexes[0])) > 1500:
                                     brick.update_corrosion(self.heq.dt)
                                     if brick.material.health <= 0.0:
                                         brick.material.is_broken = True
@@ -309,6 +311,14 @@ class BrickArray:
                     self.sim_time += self.heq.dt
 
         self.update_eq()
+
+        # Read liquid state from memory
+        with self.liquid_im.get_lock():
+            arr = np.frombuffer(self.liquid_im.get_obj())
+            c = len(arr[arr > 0.0])
+            print(np.shape(arr), c)
+
+        self.quantity = max(c / (300), self.quantity)
 
     def reset(self) -> void:
         """ reset grid state"""
@@ -358,12 +368,8 @@ class BrickArray:
 
         return np.flip(grid, 1)
 
-    def get_capacity(self):
+    def current_steel_volume(self):
         """ """
-
-        # Read liquid state from memory
-        with self.liquid_im.get_lock():
-            arr = np.frombuffer(self.liquid_im.get_obj())
-            c = len(arr[arr > 0.0])
-
-        return c
+        tmp = self.quantity
+        self.quantity = 0
+        return tmp

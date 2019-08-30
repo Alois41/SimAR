@@ -1,8 +1,8 @@
 from threading import Thread
 from time import sleep, clock
-from image_recognition.drawing import *
-from image_recognition.image_tools import *
-from settings.configuration import Config as Conf
+from source.image_recognition.drawing import *
+from source.image_recognition.image_tools import *
+from source.settings.configuration import Config as Conf
 
 
 class HandButton(Thread):

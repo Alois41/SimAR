@@ -4,12 +4,13 @@ execute if to start the program
 
 from OpenGL.GL import *
 from OpenGL.GLUT import *
-from physics.liquid_equation import *
-from image_recognition.augmented_reality import AugmentedReality
+from source.physics.liquid_equation import *
+from source.image_recognition.augmented_reality import AugmentedReality
 
 from OpenGL.GLU import *
-from settings.configuration import Config as Conf, Globals as Glob
+from source.settings.configuration import Config as Conf, Globals as Glob
 import sys
+
 
 from multiprocessing import SimpleQueue, Array, freeze_support
 from OpenGL.arrays import numpymodule
@@ -56,7 +57,7 @@ class MainProgram:
         glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION)
         glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
         glutInitWindowSize(Conf.width, Conf.height)
-        glutInitWindowPosition(screen_number * 1366 , 0)  # main window dim + 1
+        glutInitWindowPosition(screen_number * 1366, 0)  # main window dim + 1
         glutCreateWindow("Poche AR")
         glutFullScreen()
         glClearColor(0.0, 0.0, 0.0, 1.0)
@@ -79,7 +80,6 @@ class MainProgram:
         Glob.delta_t = clock() - Glob.t_ref
         Glob.t_ref = clock()
 
-
         if Glob.mode !=2:
             # update frame from webcam
             self.augmented_reality.cam.take_frame()
@@ -94,14 +94,14 @@ class MainProgram:
                 # Testing structure mode
                 if Conf.cooling:
                     Conf.t_chamber = Conf.temperature if (self.augmented_reality.buttonStart.is_triggered
-                                                          and self.augmented_reality.buttonStart.number) > 0 \
+                                                          and self.augmented_reality.number) > 0 \
                         else max(Conf.t_chamber - Conf.cooling_factor * Glob.delta_t, 293)
                     Glob.brick_array.update(not self.augmented_reality.buttonStart.is_ready()
-                                            and self.augmented_reality.buttonStart.number > 0)
+                                            and self.augmented_reality.number >= 0)
 
                 else:
                     Glob.brick_array.update(not self.augmented_reality.buttonStart.is_ready()
-                                            and self.augmented_reality.buttonStart.number > 0)
+                                            and self.augmented_reality.number >= 0)
 
                 lost_struct = False  # Glob.brick_array.test_loose()
                 if not self.lost.empty():
@@ -159,10 +159,13 @@ class MainProgram:
 
         if Glob.mode == 2:
             # reset mode
+            self.augmented_reality.buttonStart.pause()
             self.augmented_reality.lost_screen()
 
             if clock() - self.animation_clock > 5:
                 Glob.mode = 0
+        else:
+            self.augmented_reality.buttonStart.unpause()
 
         glutSwapBuffers()
 
@@ -196,8 +199,6 @@ class MainProgram:
         if key == b'd':
             # change debug mode with d key
             Glob.debug = not Glob.debug
-
-
 
     def loop(self):
         """ in case we handle the loop differently """

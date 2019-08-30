@@ -1,7 +1,7 @@
 from OpenGL.GL import *
 from OpenGL.GL.shaders import *
 from OpenGL.GLUT import *
-from settings.configuration import Config as Conf
+from source.settings.configuration import Config as Conf
 import numpy as np
 
 
