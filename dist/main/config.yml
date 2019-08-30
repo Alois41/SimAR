@@ -1,0 +1,62 @@
+screen:
+  width: 1024
+  height: 768
+
+grid:
+  dim_grille: [5,7,2]
+  force_full: False
+
+camera:
+  cam_area: [[192,256], [576,768]]
+  cam_number:  1
+  refresh_rate: 1 # refresh each X frames
+
+button:
+  hand_area_1: [[400, 920], [500, 1000]]
+  hand_area_2: [[200, 10], [300, 80]]
+
+  # increase if buttons trigger for nothing
+  hand_threshold_1: 100 # area (pxl*pxl)
+  hand_threshold_2: 100 # area (pxl*pxl)
+
+  cooldown: 4
+
+
+brick:
+  min_brick_size: 500.0 # pxl area
+  max_brick_size: 2000_000.0 # pxl area
+
+program:
+  swap: False # swap between display panels or show both
+  swap_time: 4
+  test_model: True
+  text_color: [1, 1, 1] # rgb normalized
+
+color:
+  # hue: name
+  -1: "Air"
+  60: "Yellow"
+  340: "Magenta"
+  200: "Cyan"
+  35: "Orange"
+  0: "Red"
+  80: "Green"
+
+color_mat:
+  # name: [conductivity, capacity, density, r_corrosion]
+  #        W/(m*K),      J/(kg/K), kg/m^3
+  "Air":     [0.1, 1000, 1.25, 0]
+  "Blue":    [0.00, 2000, 600, .2]
+  "Yellow":  [1.00, 2000, 600, .2]
+  "Magenta": [5.0, 500, 1000, .9]
+  "Cyan":    [1.0, 500, 1000, .3]
+  "Orange":  [0.00, 2000, 600, .9]
+  "Red":     [0.00, 2000, 600, .9]
+  "Green":   [3.00, 2000, 600, .9]
+  "Steel":   [20.0, 2000, 600, 1]
+  "Molten Steel":   [20.0, 500, 600, 1]
+
+steel:
+  temperature: 1600 # K
+  cooling: False
+  cooling_factor: 0.01 # K/s
